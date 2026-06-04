@@ -1,0 +1,26 @@
+{
+  "name": "openbrain",
+  "version": "0.1.0",
+  "description": "Local-first shared memory layer for coding agents.",
+  "type": "module",
+  "bin": {
+    "openbrain": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.30.2"
+}
