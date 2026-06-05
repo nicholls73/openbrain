@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { loadConfig, writeDefaultConfig } from "./config.js";
+import { BrainUnavailableError, canonicalPathForRule, resolveBrain } from "./brains.js";
+import { loadConfig, saveConfig, writeDefaultConfig } from "./config.js";
 import {
   allRowsWithEmbeddings,
   clearIndex,
@@ -12,7 +13,7 @@ import {
   upsertMemory
 } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
-import { codexHome, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
+import { brainHome, codexHome, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
 import { parseMemoryFile, renderMemoryMarkdown, slugify, titleFromText } from "./markdown.js";
 import type {
   AddMemoryInput,
@@ -28,23 +29,57 @@ const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
 const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
 
 export async function initOpenBrain(options: OpenBrainOptions = {}) {
-  await mkdir(openBrainHome(options), { recursive: true });
-  await mkdir(memoriesDir(options), { recursive: true });
-  await mkdir(episodesDir(options), { recursive: true });
-  await loadConfig(options);
-  const db = await openDatabase(options);
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
   db.close();
+}
+
+export async function getCurrentBrain(options: OpenBrainOptions = {}) {
+  const { resolution } = await prepareOpenBrain(options, { allowUnavailable: true });
+  return resolution.enabled ? resolution.brain : `${resolution.unmatched}:${resolution.brain}`;
+}
+
+export async function addBrainPath(
+  brain: string,
+  targetPath: string = process.cwd(),
+  options: OpenBrainOptions = {}
+) {
+  await mkdir(openBrainHome(options), { recursive: true });
+  const config = await loadConfig(options);
+  const normalizedBrain = brain
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!normalizedBrain) {
+    throw new Error(`Invalid brain name: ${brain}`);
+  }
+
+  const canonicalPath = canonicalPathForRule(targetPath);
+  const existing = config.brains.pathRules.find((rule) => rule.brain === normalizedBrain);
+  if (existing) {
+    if (!existing.paths.includes(canonicalPath)) {
+      existing.paths.push(canonicalPath);
+    }
+  } else {
+    config.brains.pathRules.push({
+      brain: normalizedBrain,
+      paths: [canonicalPath]
+    });
+  }
+  await saveConfig(config, options);
+  return { brain: normalizedBrain, path: canonicalPath };
 }
 
 export async function addMemory(
   input: AddMemoryInput,
   options: OpenBrainOptions = {}
 ): Promise<AddMemoryResult> {
-  await initOpenBrain(options);
+  const { options: scopedOptions } = await prepareOpenBrain(options);
   const now = options.now?.() ?? new Date();
   const title = titleFromText(input.text);
-  const id = await uniqueMemoryId(input.type, title, now, options);
-  const targetDir = input.type === "episode" ? episodesDir(options) : memoriesDir(options);
+  const id = await uniqueMemoryId(input.type, title, now, scopedOptions);
+  const targetDir = input.type === "episode" ? episodesDir(scopedOptions) : memoriesDir(scopedOptions);
   const record: MemoryRecord = {
     id,
     type: input.type,
@@ -55,14 +90,13 @@ export async function addMemory(
   };
 
   await writeFile(record.path, renderMemoryMarkdown(record), "utf8");
-  await indexMemoryRecord(record, options);
+  await indexMemoryRecord(record, scopedOptions);
   return record;
 }
 
 export async function searchMemories(query: string, options: OpenBrainOptions = {}) {
-  await initOpenBrain(options);
-  const config = await loadConfig(options);
-  const db = await openDatabase(options);
+  const { config, options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
   try {
     const limit = config.retrieval.limit;
     const ftsRows = ftsSearch(db, toFtsQuery(query), limit);
@@ -120,8 +154,8 @@ export async function searchMemories(query: string, options: OpenBrainOptions = 
 }
 
 export async function listMemories(options: OpenBrainOptions = {}) {
-  await initOpenBrain(options);
-  const db = await openDatabase(options);
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
   try {
     return listMemoryRows(db).map(rowToMemoryRecord);
   } finally {
@@ -130,8 +164,8 @@ export async function listMemories(options: OpenBrainOptions = {}) {
 }
 
 export async function showMemory(id: string, options: OpenBrainOptions = {}) {
-  await initOpenBrain(options);
-  const db = await openDatabase(options);
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
   try {
     const row = getMemoryRow(db, id);
     if (!row) {
@@ -144,8 +178,8 @@ export async function showMemory(id: string, options: OpenBrainOptions = {}) {
 }
 
 export async function deleteMemory(id: string, options: OpenBrainOptions = {}) {
-  await initOpenBrain(options);
-  const db = await openDatabase(options);
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
   try {
     const row = getMemoryRow(db, id);
     if (!row) {
@@ -159,28 +193,27 @@ export async function deleteMemory(id: string, options: OpenBrainOptions = {}) {
 }
 
 export async function rebuildIndex(options: OpenBrainOptions = {}) {
-  await initOpenBrain(options);
-  const db = await openDatabase(options);
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
   try {
     clearIndex(db);
   } finally {
     db.close();
   }
 
-  for (const filePath of await memoryFiles(options)) {
+  for (const filePath of await memoryFiles(scopedOptions)) {
     const record = await parseMemoryFile(filePath);
-    await indexMemoryRecord(record, options);
+    await indexMemoryRecord(record, scopedOptions);
   }
 }
 
 export async function pruneEpisodes(options: OpenBrainOptions = {}) {
-  await initOpenBrain(options);
-  const config = await loadConfig(options);
+  const { config, options: scopedOptions } = await prepareOpenBrain(options);
   const cutoff = (options.now?.() ?? new Date()).getTime() - config.retentionDays * 24 * 60 * 60 * 1000;
   const pruned: string[] = [];
-  const db = await openDatabase(options);
+  const db = await openDatabase(scopedOptions);
   try {
-    for (const filePath of await markdownFiles(episodesDir(options))) {
+    for (const filePath of await markdownFiles(episodesDir(scopedOptions))) {
       const stats = await stat(filePath);
       if (episodeTimestamp(filePath, stats.mtime) < cutoff) {
         const row = listMemoryRows(db).find((memory) => memory.path === filePath);
@@ -231,6 +264,26 @@ async function indexMemoryRecord(record: MemoryRecord, options: OpenBrainOptions
   } finally {
     db.close();
   }
+}
+
+async function prepareOpenBrain(
+  options: OpenBrainOptions = {},
+  behavior: { allowUnavailable?: boolean } = {}
+) {
+  await mkdir(openBrainHome(options), { recursive: true });
+  const config = await loadConfig(options);
+  const resolution = resolveBrain(config, options);
+  if (!resolution.enabled && !behavior.allowUnavailable) {
+    throw new BrainUnavailableError(resolution);
+  }
+  const scopedOptions = {
+    ...options,
+    brain: resolution.brain
+  };
+  await mkdir(brainHome(scopedOptions), { recursive: true });
+  await mkdir(memoriesDir(scopedOptions), { recursive: true });
+  await mkdir(episodesDir(scopedOptions), { recursive: true });
+  return { config, options: scopedOptions, resolution };
 }
 
 function resolveEmbedder(config: Awaited<ReturnType<typeof loadConfig>>, options: OpenBrainOptions) {
@@ -355,6 +408,17 @@ function episodeTimestamp(filePath: string, fallback: Date) {
 function codexBlock() {
   return `${OPENBRAIN_BEGIN}
 ## OpenBrain Memory
+
+OpenBrain selects a separate brain from the current working directory using
+\`~/.openbrain/config.json\`. Work and personal project paths should map to
+different brains so their memories do not leak into each other.
+
+If OpenBrain reports that the current path is not assigned to a brain, ask the
+user which brain should own the path, then run:
+
+\`\`\`bash
+openbrain brain add-path <brain> "<current project path>"
+\`\`\`
 
 Before starting a task, run:
 

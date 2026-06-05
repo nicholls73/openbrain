@@ -6,6 +6,11 @@ import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 export const DEFAULT_CONFIG: OpenBrainConfig = {
   version: 1,
   retentionDays: 30,
+  brains: {
+    default: "personal",
+    unmatched: "default",
+    pathRules: []
+  },
   embeddings: {
     enabled: true,
     model: "sentence-transformers/all-MiniLM-L6-v2",
@@ -41,10 +46,21 @@ export async function loadConfig(options: OpenBrainOptions = {}) {
   }
 }
 
+export async function saveConfig(config: OpenBrainConfig, options: OpenBrainOptions = {}) {
+  const file = configPath(options);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
 function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
   return {
     ...DEFAULT_CONFIG,
     ...raw,
+    brains: {
+      ...DEFAULT_CONFIG.brains,
+      ...raw.brains,
+      pathRules: raw.brains?.pathRules ?? DEFAULT_CONFIG.brains.pathRules
+    },
     embeddings: {
       ...DEFAULT_CONFIG.embeddings,
       ...raw.embeddings

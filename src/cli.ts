@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import {
   addMemory,
+  addBrainPath,
   deleteMemory,
+  getCurrentBrain,
   initOpenBrain,
   listMemories,
   pruneEpisodes,
@@ -33,6 +35,22 @@ async function main(argv: string[]) {
 
   if (area === "memory") {
     await memoryCommand(command, rest);
+    return;
+  }
+
+  if (area === "brain" && command === "current") {
+    console.log(await getCurrentBrain());
+    return;
+  }
+
+  if (area === "brain" && command === "add-path") {
+    const brain = rest[0];
+    const targetPath = rest[1] ?? process.cwd();
+    if (!brain) {
+      throw new Error("brain add-path requires a brain name");
+    }
+    const result = await addBrainPath(brain, targetPath);
+    console.log(`Added path rule: ${result.brain}\t${result.path}`);
     return;
   }
 
@@ -137,6 +155,8 @@ function usage() {
   openbrain memory list
   openbrain memory show <id>
   openbrain memory delete <id>
+  openbrain brain current
+  openbrain brain add-path <brain> [path]
   openbrain index rebuild
   openbrain prune`);
 }

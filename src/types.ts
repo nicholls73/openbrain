@@ -3,6 +3,14 @@ export type MemoryType = "preference" | "workflow" | "project" | "decision" | "e
 export interface OpenBrainConfig {
   version: 1;
   retentionDays: number;
+  brains: {
+    default: string;
+    unmatched: "default" | "disabled" | "ask";
+    pathRules: Array<{
+      brain: string;
+      paths: string[];
+    }>;
+  };
   embeddings: {
     enabled: boolean;
     model: string;
@@ -26,6 +34,8 @@ export interface EmbeddingProvider {
 export interface OpenBrainOptions {
   home?: string;
   codexHome?: string;
+  brain?: string;
+  cwd?: string;
   now?: () => Date;
   embedder?: EmbeddingProvider;
 }
