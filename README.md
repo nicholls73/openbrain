@@ -13,9 +13,9 @@ OpenBrain is a local-first shared memory layer for coding agents. The MVP starts
 - Uses `sentence-transformers/all-MiniLM-L6-v2` locally through Transformers.js for semantic retrieval.
 - Syncs a marked OpenBrain instruction block into `~/.codex/AGENTS.md`.
 
-## Commands
+## Install
 
-Install from GitHub:
+Install OpenBrain from GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash
@@ -27,25 +27,51 @@ If `openbrain` is not found after install, add the default bin directory to your
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Local development:
+## First Run
+
+Initialize OpenBrain's local state:
 
 ```bash
-pnpm install
-pnpm build
-
-node dist/cli.js init
-node dist/cli.js agents sync codex
-node dist/cli.js memory add --type workflow --text "Prefer pnpm for TypeScript projects."
-node dist/cli.js memory search "TypeScript package manager"
-node dist/cli.js memory list
-node dist/cli.js memory show <id>
-node dist/cli.js memory delete <id>
-node dist/cli.js brain current
-node dist/cli.js index rebuild
-node dist/cli.js prune
+openbrain init
 ```
 
-For local development, set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
+Sync the Codex adapter into `~/.codex/AGENTS.md`:
+
+```bash
+openbrain agents sync codex
+```
+
+Check which brain the current folder will use:
+
+```bash
+openbrain brain current
+```
+
+After this, Codex should be able to find OpenBrain from its startup instructions.
+
+## Daily Use
+
+Search existing memories:
+
+```bash
+openbrain memory search "TypeScript package manager"
+```
+
+Add a durable memory:
+
+```bash
+openbrain memory add --type workflow --text "Prefer pnpm for TypeScript projects."
+```
+
+Useful follow-up commands:
+
+```bash
+openbrain memory list
+openbrain memory show <id>
+openbrain memory delete <id>
+openbrain index rebuild
+openbrain prune
+```
 
 ## Multiple Brains
 
@@ -113,6 +139,18 @@ You can override path resolution for a single command:
 ```bash
 OPENBRAIN_BRAIN=work openbrain memory search "deployment workflow"
 ```
+
+## Local Development
+
+For contributors working on OpenBrain itself:
+
+```bash
+pnpm install
+pnpm build
+pnpm test
+```
+
+Set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
 
 ## Notes
 
