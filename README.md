@@ -35,7 +35,7 @@ Full privilege mode means the agent can read and write local files and run shell
 - If local embeddings are available, OpenBrain reranks and merges semantic matches.
 - If embeddings fail or are slow, FTS still returns results.
 - Memories stay readable as Markdown.
-- Brain routing can keep work and personal contexts separate by filesystem path.
+- Brain routing can keep different contexts separate by filesystem path.
 - The current adapter syncs a marked OpenBrain block into `~/.codex/AGENTS.md`.
 
 ## Install Manually
@@ -100,11 +100,11 @@ openbrain prune
 
 ## Multiple Brains
 
-Use one brain for the whole computer, or split your machine into separate brain containers.
+Use one brain for the whole computer, or split your machine into separate memory containers.
 
-If you want one brain everywhere, keep the default config and skip path rules. OpenBrain will use the default `personal` brain for every folder.
+If you want one brain everywhere, keep the default config and skip path rules. OpenBrain will use the default `main` brain for every folder.
 
-If you want separation between work and personal projects, configure path rules. OpenBrain resolves the current working directory to a brain before reading or writing memories.
+If you want separation between contexts, configure path rules. OpenBrain resolves the current working directory to a brain before reading or writing memories.
 
 Example `~/.openbrain/config.json`:
 
@@ -113,16 +113,16 @@ Example `~/.openbrain/config.json`:
   "version": 1,
   "retentionDays": 30,
   "brains": {
-    "default": "personal",
+    "default": "main",
     "unmatched": "ask",
     "pathRules": [
       {
-        "brain": "work",
-        "paths": ["/Users/you/Documents/work", "/Users/you/Documents/GitHub/work-client"]
+        "brain": "project-a",
+        "paths": ["/Users/you/Projects/project-a"]
       },
       {
-        "brain": "personal",
-        "paths": ["/Users/you/Documents/personal", "/Users/you/Documents/openbrain"]
+        "brain": "project-b",
+        "paths": ["/Users/you/Projects/project-b"]
       }
     ]
   },
@@ -160,13 +160,13 @@ openbrain brain current
 After deciding which brain owns a path:
 
 ```bash
-openbrain brain add-path work "/Users/you/Documents/work/client-repo"
+openbrain brain add-path project-a "/Users/you/Projects/project-a"
 ```
 
 You can override path resolution for a single command:
 
 ```bash
-OPENBRAIN_BRAIN=work openbrain memory search "deployment workflow"
+OPENBRAIN_BRAIN=project-a openbrain memory search "deployment workflow"
 ```
 
 ## Local Development

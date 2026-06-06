@@ -410,8 +410,9 @@ function codexBlock() {
 ## OpenBrain Memory
 
 OpenBrain selects a separate brain from the current working directory using
-\`~/.openbrain/config.json\`. Work and personal project paths should map to
-different brains so their memories do not leak into each other.
+\`~/.openbrain/config.json\`. Use one default brain for the whole machine, or
+map filesystem paths to separate memory containers when the user wants
+isolation between contexts.
 
 If OpenBrain reports that the current path is not assigned to a brain, ask the
 user which brain should own the path, then run:
@@ -428,7 +429,7 @@ openbrain memory search "<short description of the user's current task>"
 
 Use only relevant returned memories.
 
-After meaningful work, record concise durable memories:
+After a meaningful task, record concise durable memories:
 
 \`\`\`bash
 openbrain memory add --type workflow --text "..."
@@ -445,7 +446,7 @@ Use memory types this way:
 - \`decision\`: durable decisions.
 - \`episode\`: short-lived session notes.
 
-Never store secrets, credentials, sensitive personal details, or temporary one-off facts.
+Never store secrets, credentials, sensitive details, or temporary one-off facts.
 ${OPENBRAIN_END}`;
 }
 

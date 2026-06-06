@@ -49,28 +49,28 @@ describe("OpenBrain local storage", () => {
     await expect(readFile(path.join(home, "config.json"), "utf8")).resolves.toContain(
       "\"retentionDays\": 30"
     );
-    await expect(readFile(path.join(home, "brains", "personal", "openbrain.db"))).resolves.toBeInstanceOf(Buffer);
+    await expect(readFile(path.join(home, "brains", "main", "openbrain.db"))).resolves.toBeInstanceOf(Buffer);
   });
 
   test("selects isolated brains from configured current working directory paths", async () => {
     const home = await tempHome();
-    const workProject = path.join(home, "projects", "work", "repo");
-    const personalProject = path.join(home, "projects", "personal", "repo");
+    const projectA = path.join(home, "projects", "alpha", "repo");
+    const projectB = path.join(home, "projects", "beta", "repo");
     await initOpenBrain(options(home));
     await writeFile(
       path.join(home, "config.json"),
       JSON.stringify(
         {
           brains: {
-            default: "personal",
+            default: "main",
             pathRules: [
               {
-                brain: "work",
-                paths: [path.join(home, "projects", "work")]
+                brain: "alpha",
+                paths: [path.join(home, "projects", "alpha")]
               },
               {
-                brain: "personal",
-                paths: [path.join(home, "projects", "personal")]
+                brain: "beta",
+                paths: [path.join(home, "projects", "beta")]
               }
             ]
           }
@@ -81,27 +81,27 @@ describe("OpenBrain local storage", () => {
       "utf8"
     );
 
-    const workMemory = await addMemory(
+    const alphaMemory = await addMemory(
       {
         type: "project",
-        text: "The work brain remembers enterprise repository context."
+        text: "The alpha brain remembers release planning context."
       },
-      { ...options(home), cwd: workProject }
+      { ...options(home), cwd: projectA }
     );
     await addMemory(
       {
         type: "project",
-        text: "The personal brain remembers hobby project context."
+        text: "The beta brain remembers prototype sketch context."
       },
-      { ...options(home), cwd: personalProject }
+      { ...options(home), cwd: projectB }
     );
 
-    expect(workMemory.path).toContain(path.join("brains", "work", "memories"));
-    expect(await searchMemories("enterprise repository", { ...options(home), cwd: workProject })).toHaveLength(1);
-    expect(await searchMemories("enterprise repository", { ...options(home), cwd: personalProject })).toHaveLength(0);
-    expect(await searchMemories("hobby", { ...options(home), cwd: workProject })).toHaveLength(0);
-    expect(await getCurrentBrain({ ...options(home), cwd: workProject })).toBe("work");
-    expect(await getCurrentBrain({ ...options(home), cwd: personalProject })).toBe("personal");
+    expect(alphaMemory.path).toContain(path.join("brains", "alpha", "memories"));
+    expect(await searchMemories("release planning", { ...options(home), cwd: projectA })).toHaveLength(1);
+    expect(await searchMemories("release planning", { ...options(home), cwd: projectB })).toHaveLength(0);
+    expect(await searchMemories("prototype", { ...options(home), cwd: projectA })).toHaveLength(0);
+    expect(await getCurrentBrain({ ...options(home), cwd: projectA })).toBe("alpha");
+    expect(await getCurrentBrain({ ...options(home), cwd: projectB })).toBe("beta");
   });
 
   test("can disable OpenBrain for paths that do not match a brain rule", async () => {
@@ -112,7 +112,7 @@ describe("OpenBrain local storage", () => {
       JSON.stringify(
         {
           brains: {
-            default: "personal",
+            default: "main",
             unmatched: "disabled",
             pathRules: []
           }
@@ -136,14 +136,14 @@ describe("OpenBrain local storage", () => {
 
   test("can ask the agent to add unmatched paths before using OpenBrain", async () => {
     const home = await tempHome();
-    const projectPath = path.join(home, "new-work-project");
+    const projectPath = path.join(home, "new-project");
     await initOpenBrain(options(home));
     await writeFile(
       path.join(home, "config.json"),
       JSON.stringify(
         {
           brains: {
-            default: "personal",
+            default: "main",
             unmatched: "ask",
             pathRules: []
           }
@@ -158,8 +158,8 @@ describe("OpenBrain local storage", () => {
       "Ask the user which brain"
     );
 
-    await addBrainPath("work", projectPath, options(home));
-    expect(await getCurrentBrain({ ...options(home), cwd: projectPath })).toBe("work");
+    await addBrainPath("alpha", projectPath, options(home));
+    expect(await getCurrentBrain({ ...options(home), cwd: projectPath })).toBe("alpha");
   });
 
   test("matches path rules when cwd and config use different symlink spellings", async () => {
@@ -173,10 +173,10 @@ describe("OpenBrain local storage", () => {
       JSON.stringify(
         {
           brains: {
-            default: "personal",
+            default: "main",
             pathRules: [
               {
-                brain: "work",
+                brain: "alpha",
                 paths: [symlinkRoot]
               }
             ]
@@ -188,7 +188,7 @@ describe("OpenBrain local storage", () => {
       "utf8"
     );
 
-    expect(await getCurrentBrain({ ...options(home), cwd: path.join(realRoot, "repo") })).toBe("work");
+    expect(await getCurrentBrain({ ...options(home), cwd: path.join(realRoot, "repo") })).toBe("alpha");
   });
 
   test("loads partial nested config without dropping defaults", async () => {
@@ -305,7 +305,7 @@ describe("OpenBrain local storage", () => {
     expect(await listMemories(options(home))).toHaveLength(1);
     await expect(showMemory(added.id, options(home))).resolves.toContain("canonical memory source");
 
-    await rm(path.join(home, "brains", "personal", "openbrain.db"), { force: true });
+    await rm(path.join(home, "brains", "main", "openbrain.db"), { force: true });
     await rebuildIndex(options(home));
     expect((await searchMemories("canonical memory", options(home)))[0]?.id).toBe(added.id);
 
@@ -318,7 +318,7 @@ describe("OpenBrain local storage", () => {
     const home = await tempHome();
     await initOpenBrain(options(home));
     await addMemory({ type: "workflow", text: "Durable workflow memory stays." }, options(home));
-    const oldEpisode = path.join(home, "brains", "personal", "episodes", "2026-01-01-old.md");
+    const oldEpisode = path.join(home, "brains", "main", "episodes", "2026-01-01-old.md");
     await writeFile(oldEpisode, "old session", "utf8");
 
     const pruned = await pruneEpisodes(options(home));
@@ -342,7 +342,7 @@ describe("Codex adapter sync", () => {
 
     await writeFile(
       path.join(codexHome, "AGENTS.md"),
-      `# Personal rules\n\nDo not remove this.\n\n${first}`,
+      `# Existing rules\n\nDo not remove this.\n\n${first}`,
       "utf8"
     );
     await syncCodexAgent({ ...options(home), codexHome });

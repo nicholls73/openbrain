@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 
-const DEFAULT_BRAIN = "personal";
+const DEFAULT_BRAIN = "main";
 
 export function resolveBrainName(config: OpenBrainConfig, options: OpenBrainOptions = {}) {
   return resolveBrain(config, options).brain;

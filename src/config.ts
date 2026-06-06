@@ -7,7 +7,7 @@ export const DEFAULT_CONFIG: OpenBrainConfig = {
   version: 1,
   retentionDays: 30,
   brains: {
-    default: "personal",
+    default: "main",
     unmatched: "default",
     pathRules: []
   },

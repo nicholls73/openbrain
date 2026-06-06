@@ -7,7 +7,7 @@ export function openBrainHome(options: OpenBrainOptions = {}) {
 }
 
 export function brainName(options: OpenBrainOptions = {}) {
-  return options.brain ?? process.env.OPENBRAIN_BRAIN ?? "personal";
+  return options.brain ?? process.env.OPENBRAIN_BRAIN ?? "main";
 }
 
 export function brainHome(options: OpenBrainOptions = {}) {

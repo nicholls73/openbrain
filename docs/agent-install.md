@@ -39,11 +39,11 @@ openbrain init
 Before changing configuration, ask the user whether they want:
 
 1. One brain for the whole computer.
-2. Separate brain containers for paths like work and personal projects.
+2. Separate memory containers for specific filesystem paths.
 
-If the user chooses one brain, keep the default brain for all paths.
+If the user chooses one brain, keep the default brain for all paths. Do not create path rules.
 
-If the user chooses separate brain containers, ask which filesystem paths belong to each brain. Then run:
+If the user chooses separate memory containers, ask them to name each container and provide the filesystem paths that belong to it. Do not suggest container names. Then run:
 
 ```bash
 openbrain brain add-path <brain> "<path>"
@@ -86,4 +86,4 @@ openbrain memory search "project workflow"
 openbrain memory add --type workflow --text "Prefer pnpm for TypeScript projects."
 ```
 
-Never store secrets, credentials, sensitive personal details, or temporary one-off facts as memories.
+Never store secrets, credentials, sensitive details, or temporary one-off facts as memories.
