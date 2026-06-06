@@ -1,8 +1,8 @@
 # OpenBrain
 
-OpenBrain is a local-first shared memory layer for coding agents. The MVP starts with Codex: Markdown files are the source of truth, and SQLite indexes those files for retrieval with full-text search plus local embeddings.
+OpenBrain is a local-first shared memory layer for coding agents. It gives agents a shared brain on your machine while keeping memories readable, path-scoped, and under your control. Markdown files are the source of truth, and SQLite indexes those files for retrieval with full-text search plus local embeddings.
 
-## MVP Behavior
+## How It Works
 
 - Stores local state in `~/.openbrain/`.
 - Uses `~/.openbrain/config.json` to map filesystem paths to separate brains.
@@ -13,7 +13,31 @@ OpenBrain is a local-first shared memory layer for coding agents. The MVP starts
 - Uses `sentence-transformers/all-MiniLM-L6-v2` locally through Transformers.js for semantic retrieval.
 - Syncs a marked OpenBrain instruction block into `~/.codex/AGENTS.md`.
 
-## Install
+## Install With An Agent
+
+Copy this into Codex, Claude Code, OpenCode, or another coding agent:
+
+```text
+Install OpenBrain for me from https://github.com/nicholls73/openbrain.
+
+Use the curl installer from the README, then run `openbrain init`.
+
+Before changing configuration, ask whether I want:
+1. one brain for the whole computer, or
+2. separate brain containers for paths like work and personal projects.
+
+If I choose one brain, keep the default brain for all paths.
+
+If I choose separate brain containers, ask me which filesystem paths belong to each brain, then run `openbrain brain add-path <brain> "<path>"` for each one.
+
+After configuration, run `openbrain brain current` in the relevant folders to verify the selected brain. Then sync Codex with `openbrain agents sync codex`.
+
+Ask before modifying my shell profile or agent instruction files. Tell me exactly what files were changed.
+```
+
+The agent should install OpenBrain, ask the setup questions, configure brain routing if needed, and verify the result.
+
+## Install Manually
 
 Install OpenBrain from GitHub:
 
@@ -27,7 +51,7 @@ If `openbrain` is not found after install, add the default bin directory to your
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## First Run
+## First Run Manually
 
 Initialize OpenBrain's local state:
 
@@ -75,7 +99,11 @@ openbrain prune
 
 ## Multiple Brains
 
-OpenBrain can keep work and personal memories separate by resolving the current working directory to a configured brain.
+OpenBrain can use one brain for your whole computer, or separate brain containers for different filesystem paths.
+
+If you want one brain everywhere, use the default config and skip path rules. OpenBrain will use the default `personal` brain for every folder.
+
+If you want separation between work and personal projects, configure path rules. OpenBrain resolves the current working directory to a brain before reading or writing memories.
 
 Example `~/.openbrain/config.json`:
 
