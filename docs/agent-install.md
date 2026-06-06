@@ -78,12 +78,13 @@ Tell the user:
 - Whether OpenBrain installed successfully.
 - Which brain setup was chosen.
 - Which files were changed.
-- The exact commands they can use next:
+- That agents should now use OpenBrain automatically through their instructions.
+- The inspection commands they can run if they want to check state:
 
 ```bash
 openbrain brain current
-openbrain memory search "project workflow"
-openbrain memory add --type workflow --text "Prefer pnpm for TypeScript projects."
+openbrain memory list
+openbrain memory show <id>
 ```
 
 Never store secrets, credentials, sensitive details, or temporary one-off facts as memories.

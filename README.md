@@ -74,23 +74,16 @@ openbrain brain current
 
 After this, Codex knows when to search and write memories.
 
-## Daily Use
+## Agent Use
 
-Search existing memories:
+OpenBrain is not meant to be a daily human note-taking CLI. Humans install it, choose containers, and inspect state when needed. Agents use it while they work.
 
-```bash
-openbrain memory search "TypeScript package manager"
-```
+At task start, the agent searches for relevant memory. After meaningful work, the agent writes concise memories back to the right container. You should not need to run memory commands directly during normal use.
 
-Add a durable memory:
+Useful inspection and maintenance commands:
 
 ```bash
-openbrain memory add --type workflow --text "Prefer pnpm for TypeScript projects."
-```
-
-Useful follow-up commands:
-
-```bash
+openbrain brain current
 openbrain memory list
 openbrain memory show <id>
 openbrain memory delete <id>
