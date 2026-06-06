@@ -18,21 +18,7 @@ OpenBrain is a local-first shared memory layer for coding agents. It gives agent
 Copy this into Codex, Claude Code, OpenCode, or another coding agent:
 
 ```text
-Install OpenBrain for me from https://github.com/nicholls73/openbrain.
-
-Use the curl installer from the README, then run `openbrain init`.
-
-Before changing configuration, ask whether I want:
-1. one brain for the whole computer, or
-2. separate brain containers for paths like work and personal projects.
-
-If I choose one brain, keep the default brain for all paths.
-
-If I choose separate brain containers, ask me which filesystem paths belong to each brain, then run `openbrain brain add-path <brain> "<path>"` for each one.
-
-After configuration, run `openbrain brain current` in the relevant folders to verify the selected brain. Then sync Codex with `openbrain agents sync codex`.
-
-Ask before modifying my shell profile or agent instruction files. Tell me exactly what files were changed.
+Install OpenBrain for me by following this setup guide: https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md
 ```
 
 The agent should install OpenBrain, ask the setup questions, configure brain routing if needed, and verify the result.
