@@ -1,27 +1,42 @@
 # OpenBrain
 
-OpenBrain is a local-first shared memory layer for coding agents. It gives agents a shared brain on your machine while keeping memories readable, path-scoped, and under your control. Markdown files are the source of truth, and SQLite indexes those files for retrieval with full-text search plus local embeddings.
+One local brain for every coding agent on your machine.
+
+You switch between Codex, Claude Code, OpenCode, and whatever comes next. They all need the same context. OpenBrain gives them one shared memory layer: readable Markdown as the source of truth, SQLite as a rebuildable search index, and local embeddings when semantic search helps.
+
+No hosted memory API. No SaaS account. No secret sync. Just files under `~/.openbrain/`.
+
+## For Humans
+
+Strongly recommended: let an agent install OpenBrain for you. The setup involves shell access, PATH checks, optional brain routing, and agent instruction files. Agents are good at following that checklist.
+
+Paste this into Codex, Claude Code, OpenCode, or another coding agent running in full privilege mode:
+
+```text
+Using full privilege mode with local filesystem and shell access, install OpenBrain for me by following this setup guide: https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md
+```
+
+Full privilege mode means the agent can read and write local files and run shell commands. It does not mean root access.
+
+## What Lands On Disk
+
+| Path | Purpose |
+| --- | --- |
+| `~/.openbrain/config.json` | Brain routing, retention, agent, and retrieval settings. |
+| `~/.openbrain/brains/<name>/memories/` | Durable Markdown memories. |
+| `~/.openbrain/brains/<name>/episodes/` | Short-lived Markdown session notes. |
+| `~/.openbrain/brains/<name>/openbrain.db` | Rebuildable SQLite FTS/vector index. |
+| `~/.openbrain/models/` | Local embedding model cache. |
 
 ## How It Works
 
-- Stores local state in `~/.openbrain/`.
-- Uses `~/.openbrain/config.json` to map filesystem paths to separate brains.
-- Keeps each brain isolated under `~/.openbrain/brains/<name>/`.
-- Keeps durable memories as Markdown in each brain's `memories/` folder.
-- Keeps short-lived episode notes in each brain's `episodes/` folder.
-- Uses each brain's `openbrain.db` as a rebuildable search index.
-- Uses `sentence-transformers/all-MiniLM-L6-v2` locally through Transformers.js for semantic retrieval.
-- Syncs a marked OpenBrain instruction block into `~/.codex/AGENTS.md`.
-
-## Install With An Agent
-
-Copy this into Codex, Claude Code, OpenCode, or another coding agent:
-
-```text
-Install OpenBrain for me by following this setup guide: https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md
-```
-
-The agent should install OpenBrain, ask the setup questions, configure brain routing if needed, and verify the result.
+- Agents call `openbrain memory search`, not an embedding model.
+- OpenBrain runs SQLite FTS first.
+- If local embeddings are available, OpenBrain reranks and merges semantic matches.
+- If embeddings fail or are slow, FTS still returns results.
+- Memories stay readable as Markdown.
+- Brain routing can keep work and personal contexts separate by filesystem path.
+- The current adapter syncs a marked OpenBrain block into `~/.codex/AGENTS.md`.
 
 ## Install Manually
 
@@ -39,13 +54,13 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## First Run Manually
 
-Initialize OpenBrain's local state:
+Initialize local state:
 
 ```bash
 openbrain init
 ```
 
-Sync the Codex adapter into `~/.codex/AGENTS.md`:
+Wire Codex into OpenBrain:
 
 ```bash
 openbrain agents sync codex
@@ -57,7 +72,7 @@ Check which brain the current folder will use:
 openbrain brain current
 ```
 
-After this, Codex should be able to find OpenBrain from its startup instructions.
+After this, Codex knows when to search and write memories.
 
 ## Daily Use
 
@@ -85,9 +100,9 @@ openbrain prune
 
 ## Multiple Brains
 
-OpenBrain can use one brain for your whole computer, or separate brain containers for different filesystem paths.
+Use one brain for the whole computer, or split your machine into separate brain containers.
 
-If you want one brain everywhere, use the default config and skip path rules. OpenBrain will use the default `personal` brain for every folder.
+If you want one brain everywhere, keep the default config and skip path rules. OpenBrain will use the default `personal` brain for every folder.
 
 If you want separation between work and personal projects, configure path rules. OpenBrain resolves the current working directory to a brain before reading or writing memories.
 

@@ -1,6 +1,16 @@
 # OpenBrain Agent Install Guide
 
-You are installing OpenBrain for the user. OpenBrain is a local-first shared memory layer for coding agents.
+You are installing OpenBrain for the user.
+
+Do the install. Ask the setup questions. Verify the result. Do not guess which folders belong to which brain.
+
+OpenBrain is a local-first shared memory layer for coding agents. It keeps memories on the user's machine as Markdown and uses SQLite plus local embeddings for retrieval.
+
+## Permission Requirement
+
+This guide expects the agent to be running with full local filesystem and shell access.
+
+Full privilege mode means the agent can read and write local files and run shell commands. It does not mean root access.
 
 ## Install
 
