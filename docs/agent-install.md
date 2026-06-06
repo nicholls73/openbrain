@@ -71,6 +71,8 @@ If the user wants Codex integration, run:
 openbrain agents sync codex
 ```
 
+The Codex adapter will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today.
+
 ## Finish
 
 Tell the user:
@@ -78,7 +80,7 @@ Tell the user:
 - Whether OpenBrain installed successfully.
 - Which brain setup was chosen.
 - Which files were changed.
-- That agents should now use OpenBrain automatically through their instructions.
+- That agents should now use OpenBrain automatically through their instructions, including once-daily dreaming.
 - The inspection commands they can run if they want to check state:
 
 ```bash

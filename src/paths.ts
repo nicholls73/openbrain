@@ -34,6 +34,10 @@ export function episodesDir(options: OpenBrainOptions = {}) {
   return path.join(brainHome(options), "episodes");
 }
 
+export function dreamsDir(options: OpenBrainOptions = {}) {
+  return path.join(brainHome(options), "dreams");
+}
+
 export function modelCacheDir(options: OpenBrainOptions = {}) {
   return path.join(openBrainHome(options), "models");
 }

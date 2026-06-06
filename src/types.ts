@@ -65,3 +65,21 @@ export interface SearchResult {
   excerpt: string;
   match: "fts" | "vector" | "hybrid";
 }
+
+export interface DreamRunResult {
+  brain: string;
+  status: "ran";
+  date: string;
+  prunedEpisodes: number;
+  rebuiltIndex: boolean;
+  logPath: string;
+}
+
+export interface DreamSkippedResult {
+  brain: string;
+  status: "skipped";
+  date: string;
+  reason: "already-dreamed-today" | "dream-already-running";
+}
+
+export type DreamResult = DreamRunResult | DreamSkippedResult;

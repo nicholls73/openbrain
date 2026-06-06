@@ -25,6 +25,7 @@ Full privilege mode means the agent can read and write local files and run shell
 | `~/.openbrain/config.json` | Brain routing, retention, agent, and retrieval settings. |
 | `~/.openbrain/brains/<name>/memories/` | Durable Markdown memories. |
 | `~/.openbrain/brains/<name>/episodes/` | Short-lived Markdown session notes. |
+| `~/.openbrain/brains/<name>/dreams/` | Daily maintenance state and audit logs. |
 | `~/.openbrain/brains/<name>/openbrain.db` | Rebuildable SQLite FTS/vector index. |
 | `~/.openbrain/models/` | Local embedding model cache. |
 
@@ -36,6 +37,7 @@ Full privilege mode means the agent can read and write local files and run shell
 - If embeddings fail or are slow, FTS still returns results.
 - Memories stay readable as Markdown.
 - Brain routing can keep different contexts separate by filesystem path.
+- Agents quietly trigger `openbrain dream maybe --quiet` so each brain can run maintenance once per day.
 - The current adapter syncs a marked OpenBrain block into `~/.codex/AGENTS.md`.
 
 ## Install Manually
@@ -78,7 +80,7 @@ After this, Codex knows when to search and write memories.
 
 OpenBrain is not meant to be a daily human note-taking CLI. Humans install it, choose containers, and inspect state when needed. Agents use it while they work.
 
-At task start, the agent searches for relevant memory. After meaningful work, the agent writes concise memories back to the right container. You should not need to run memory commands directly during normal use.
+At task start, the agent quietly checks whether the active brain has already dreamed today, then searches for relevant memory. After meaningful work, the agent writes concise memories back to the right container. You should not need to run memory commands directly during normal use.
 
 Useful inspection and maintenance commands:
 
@@ -87,6 +89,7 @@ openbrain brain current
 openbrain memory list
 openbrain memory show <id>
 openbrain memory delete <id>
+openbrain dream run
 openbrain index rebuild
 openbrain prune
 ```
@@ -110,12 +113,12 @@ Example `~/.openbrain/config.json`:
     "unmatched": "ask",
     "pathRules": [
       {
-        "brain": "project-a",
-        "paths": ["/Users/you/Projects/project-a"]
+        "brain": "brain-a",
+        "paths": ["/Users/you/path-for-brain-a"]
       },
       {
-        "brain": "project-b",
-        "paths": ["/Users/you/Projects/project-b"]
+        "brain": "brain-b",
+        "paths": ["/Users/you/path-for-brain-b"]
       }
     ]
   },
@@ -153,13 +156,13 @@ openbrain brain current
 After deciding which brain owns a path:
 
 ```bash
-openbrain brain add-path project-a "/Users/you/Projects/project-a"
+openbrain brain add-path brain-a "/Users/you/path-for-brain-a"
 ```
 
 You can override path resolution for a single command:
 
 ```bash
-OPENBRAIN_BRAIN=project-a openbrain memory search "deployment workflow"
+OPENBRAIN_BRAIN=brain-a openbrain memory search "deployment workflow"
 ```
 
 ## Local Development
@@ -177,3 +180,5 @@ Set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
 ## Notes
 
 The first semantic search can be slower because the local embedding model has to load and may need to download into the OpenBrain model cache. Search falls back to SQLite FTS when embeddings are unavailable.
+
+Dreaming is maintenance-only for now. It prunes expired episodes, rebuilds the retrieval index from Markdown, and writes an audit log. It does not invent memories.

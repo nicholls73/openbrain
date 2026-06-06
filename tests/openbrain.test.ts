@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -7,6 +7,8 @@ import {
   addMemory,
   addBrainPath,
   deleteMemory,
+  dreamMaybe,
+  dreamRun,
   initOpenBrain,
   getCurrentBrain,
   listMemories,
@@ -327,6 +329,60 @@ describe("OpenBrain local storage", () => {
     expect(await listMemories(options(home))).toHaveLength(1);
     await expect(readFile(oldEpisode, "utf8")).rejects.toThrow();
   });
+
+  test("dream run records state, writes an audit log, prunes episodes, and rebuilds the index", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const added = await addMemory(
+      {
+        type: "decision",
+        text: "Dreaming consolidates memory without inventing facts."
+      },
+      options(home)
+    );
+    await rm(path.join(home, "brains", "main", "openbrain.db"), { force: true });
+    const oldEpisode = path.join(home, "brains", "main", "episodes", "2026-01-01-old.md");
+    await writeFile(oldEpisode, "old session", "utf8");
+
+    const result = await dreamRun(options(home));
+
+    expect(result).toMatchObject({
+      brain: "main",
+      status: "ran",
+      date: "2026-06-04",
+      prunedEpisodes: 1,
+      rebuiltIndex: true
+    });
+    await expect(readFile(path.join(home, "brains", "main", "dreams", "state.json"), "utf8")).resolves.toContain(
+      "\"lastDreamDate\": \"2026-06-04\""
+    );
+    await expect(readFile(result.logPath, "utf8")).resolves.toContain("Dream run");
+    await expect(readFile(oldEpisode, "utf8")).rejects.toThrow();
+    expect((await searchMemories("inventing facts", options(home)))[0]?.id).toBe(added.id);
+  });
+
+  test("dream maybe runs only once per brain each day", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const first = await dreamMaybe(options(home));
+    const second = await dreamMaybe(options(home));
+    const nextDay = await dreamMaybe({
+      ...options(home),
+      now: () => new Date("2026-06-05T09:30:00.000Z")
+    });
+
+    expect(first.status).toBe("ran");
+    expect(second).toMatchObject({
+      brain: "main",
+      status: "skipped",
+      reason: "already-dreamed-today",
+      date: "2026-06-04"
+    });
+    expect(nextDay.status).toBe("ran");
+    const dreamFiles = await readdir(path.join(home, "brains", "main", "dreams"));
+    expect(dreamFiles.filter((file) => file.endsWith(".md"))).toHaveLength(2);
+  });
 });
 
 describe("Codex adapter sync", () => {
@@ -338,7 +394,9 @@ describe("Codex adapter sync", () => {
     await syncCodexAgent({ ...options(home), codexHome });
     const first = await readFile(path.join(codexHome, "AGENTS.md"), "utf8");
     expect(first).toContain("BEGIN OPENBRAIN");
+    expect(first).toContain("openbrain dream maybe --quiet");
     expect(first).toContain("openbrain memory search");
+    expect(first.indexOf("openbrain dream maybe --quiet")).toBeLessThan(first.indexOf("openbrain memory search"));
 
     await writeFile(
       path.join(codexHome, "AGENTS.md"),

@@ -3,6 +3,8 @@ import {
   addMemory,
   addBrainPath,
   deleteMemory,
+  dreamMaybe,
+  dreamRun,
   getCurrentBrain,
   initOpenBrain,
   listMemories,
@@ -54,6 +56,11 @@ async function main(argv: string[]) {
     return;
   }
 
+  if (area === "dream") {
+    await dreamCommand(command, rest);
+    return;
+  }
+
   if (area === "index" && command === "rebuild") {
     await rebuildIndex();
     console.log("Index rebuilt.");
@@ -63,6 +70,27 @@ async function main(argv: string[]) {
   if (area === "prune") {
     const pruned = await pruneEpisodes();
     console.log(`Pruned ${pruned.length} episode file${pruned.length === 1 ? "" : "s"}.`);
+    return;
+  }
+
+  usage();
+}
+
+async function dreamCommand(command: string | undefined, args: string[]) {
+  const quiet = args.includes("--quiet");
+  if (command === "maybe") {
+    const result = await dreamMaybe();
+    if (!quiet) {
+      printDreamResult(result);
+    }
+    return;
+  }
+
+  if (command === "run") {
+    const result = await dreamRun();
+    if (!quiet) {
+      printDreamResult(result);
+    }
     return;
   }
 
@@ -146,10 +174,22 @@ function printSearchResults(results: SearchResult[]) {
   }
 }
 
+function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
+  if (result.status === "ran") {
+    console.log(`Dream ran for brain ${result.brain}: ${result.logPath}`);
+    console.log(`Pruned ${result.prunedEpisodes} episode file${result.prunedEpisodes === 1 ? "" : "s"}.`);
+    return;
+  }
+
+  console.log(`Dream skipped for brain ${result.brain}: ${result.reason}`);
+}
+
 function usage() {
   console.log(`Usage:
   openbrain init
   openbrain agents sync codex
+  openbrain dream maybe [--quiet]
+  openbrain dream run [--quiet]
   openbrain memory add --type <type> --text <text>
   openbrain memory search <query>
   openbrain memory list

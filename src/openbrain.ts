@@ -13,11 +13,13 @@ import {
   upsertMemory
 } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
-import { brainHome, codexHome, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
+import { brainHome, codexHome, dreamsDir, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
 import { parseMemoryFile, renderMemoryMarkdown, slugify, titleFromText } from "./markdown.js";
 import type {
   AddMemoryInput,
   AddMemoryResult,
+  DreamResult,
+  DreamRunResult,
   EmbeddingProvider,
   MemoryRecord,
   MemoryType,
@@ -230,6 +232,40 @@ export async function pruneEpisodes(options: OpenBrainOptions = {}) {
   return pruned;
 }
 
+export async function dreamMaybe(options: OpenBrainOptions = {}): Promise<DreamResult> {
+  const { options: scopedOptions, resolution } = await prepareOpenBrain(options);
+  const now = options.now?.() ?? new Date();
+  const date = localDateString(now);
+  const state = await readDreamState(scopedOptions);
+  if (state.lastDreamDate === date) {
+    return {
+      brain: resolution.brain,
+      status: "skipped",
+      date,
+      reason: "already-dreamed-today"
+    };
+  }
+
+  return runDreamWithLock(scopedOptions, resolution.brain, now, async () => {
+    const freshState = await readDreamState(scopedOptions);
+    if (freshState.lastDreamDate === date) {
+      return {
+        brain: resolution.brain,
+        status: "skipped",
+        date,
+        reason: "already-dreamed-today"
+      };
+    }
+    return performDream(scopedOptions, resolution.brain, now);
+  });
+}
+
+export async function dreamRun(options: OpenBrainOptions = {}): Promise<DreamResult> {
+  const { options: scopedOptions, resolution } = await prepareOpenBrain(options);
+  const now = options.now?.() ?? new Date();
+  return runDreamWithLock(scopedOptions, resolution.brain, now, () => performDream(scopedOptions, resolution.brain, now));
+}
+
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
   await initOpenBrain(options);
   const dir = codexHome(options);
@@ -283,7 +319,140 @@ async function prepareOpenBrain(
   await mkdir(brainHome(scopedOptions), { recursive: true });
   await mkdir(memoriesDir(scopedOptions), { recursive: true });
   await mkdir(episodesDir(scopedOptions), { recursive: true });
+  await mkdir(dreamsDir(scopedOptions), { recursive: true });
   return { config, options: scopedOptions, resolution };
+}
+
+async function runDreamWithLock(
+  options: OpenBrainOptions,
+  brain: string,
+  now: Date,
+  run: () => Promise<DreamResult>
+): Promise<DreamResult> {
+  const date = localDateString(now);
+  const lockPath = path.join(dreamsDir(options), ".lock");
+  const acquired = await acquireDreamLock(lockPath, now);
+  if (!acquired) {
+    return {
+      brain,
+      status: "skipped",
+      date,
+      reason: "dream-already-running"
+    };
+  }
+
+  try {
+    return await run();
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
+  }
+}
+
+async function acquireDreamLock(lockPath: string, now: Date): Promise<boolean> {
+  try {
+    await mkdir(lockPath, { recursive: false });
+    await writeFile(path.join(lockPath, "owner.json"), `${JSON.stringify({ createdAt: now.toISOString() }, null, 2)}\n`, "utf8");
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+
+    const stats = await stat(lockPath).catch(() => undefined);
+    if (stats && now.getTime() - stats.mtime.getTime() > 30 * 60 * 1000) {
+      await rm(lockPath, { recursive: true, force: true });
+      return acquireDreamLock(lockPath, now);
+    }
+    return false;
+  }
+}
+
+async function performDream(options: OpenBrainOptions, brain: string, now: Date): Promise<DreamRunResult> {
+  const date = localDateString(now);
+  const pruned = await pruneEpisodes(options);
+  await rebuildIndex(options);
+  const logPath = await uniqueDreamLogPath(date, now, options);
+  const result: DreamRunResult = {
+    brain,
+    status: "ran",
+    date,
+    prunedEpisodes: pruned.length,
+    rebuiltIndex: true,
+    logPath
+  };
+  await writeFile(logPath, renderDreamLog(result, now), "utf8");
+  await writeDreamState(
+    {
+      lastDreamAt: now.toISOString(),
+      lastDreamDate: date,
+      lastLogPath: logPath
+    },
+    options
+  );
+  return result;
+}
+
+async function readDreamState(options: OpenBrainOptions) {
+  try {
+    return JSON.parse(await readFile(dreamStatePath(options), "utf8")) as {
+      lastDreamAt?: string;
+      lastDreamDate?: string;
+      lastLogPath?: string;
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+}
+
+async function writeDreamState(
+  state: { lastDreamAt: string; lastDreamDate: string; lastLogPath: string },
+  options: OpenBrainOptions
+) {
+  await mkdir(dreamsDir(options), { recursive: true });
+  await writeFile(dreamStatePath(options), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+function dreamStatePath(options: OpenBrainOptions) {
+  return path.join(dreamsDir(options), "state.json");
+}
+
+async function uniqueDreamLogPath(date: string, now: Date, options: OpenBrainOptions) {
+  const timestamp = now.toISOString().replace(/[:.]/g, "-");
+  const base = path.join(dreamsDir(options), `${date}-${timestamp}-dream`);
+  let candidate = `${base}.md`;
+  let suffix = 2;
+  while (await exists(candidate)) {
+    candidate = `${base}-${suffix++}.md`;
+  }
+  return candidate;
+}
+
+function renderDreamLog(result: DreamRunResult, now: Date) {
+  return [
+    "# Dream run",
+    "",
+    `- brain: ${result.brain}`,
+    `- date: ${result.date}`,
+    `- ranAt: ${now.toISOString()}`,
+    `- prunedEpisodes: ${result.prunedEpisodes}`,
+    `- rebuiltIndex: ${result.rebuiltIndex}`,
+    "",
+    "Maintenance performed:",
+    "",
+    "- Pruned expired episode files.",
+    "- Rebuilt the SQLite retrieval index from Markdown.",
+    "- Did not create new memories."
+  ].join("\n") + "\n";
+}
+
+function localDateString(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function resolveEmbedder(config: Awaited<ReturnType<typeof loadConfig>>, options: OpenBrainOptions) {
@@ -421,9 +590,10 @@ user which brain should own the path, then run:
 openbrain brain add-path <brain> "<current project path>"
 \`\`\`
 
-Before starting a task, run:
+Before starting a task, run daily maintenance, then search:
 
 \`\`\`bash
+openbrain dream maybe --quiet
 openbrain memory search "<short description of the user's current task>"
 \`\`\`
 
