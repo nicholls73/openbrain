@@ -467,6 +467,28 @@ describe("OpenBrain local storage", () => {
 });
 
 describe("Codex adapter sync", () => {
+  test("frames memory as belonging to the active brain, not a repo or project", async () => {
+    const home = await tempHome();
+    const codexHome = path.join(home, ".codex");
+    await initOpenBrain(options(home));
+
+    await syncCodexAgent({ ...options(home), codexHome });
+    const agentFile = await readFile(path.join(codexHome, "AGENTS.md"), "utf8");
+
+    expect(agentFile).toContain("OpenBrain uses the current workspace path only to choose the active brain.");
+    expect(agentFile).toContain("Treat that brain as the memory container.");
+    expect(agentFile).toContain("Refer to memory by brain name or");
+    expect(agentFile).toContain("active brain. Refer to paths only when configuring brain routing or discussing");
+    expect(agentFile).toContain('openbrain brain add-path <brain> "<current workspace path>"');
+    expect(agentFile).toContain('openbrain memory add --type workspace --text "..."');
+    expect(agentFile).toContain("- `workspace`: workspace, toolchain, or recurring task conventions.");
+    expect(agentFile).not.toContain("<current project path>");
+    expect(agentFile).not.toContain("repo or tooling conventions");
+    expect(agentFile).not.toContain("openbrain memory add --type project --text");
+    expect(agentFile).not.toMatch(/\brepo\b/i);
+    expect(agentFile).not.toMatch(/\bproject\b/i);
+  });
+
   test("inserts and updates only the marked OpenBrain block", async () => {
     const home = await tempHome();
     const codexHome = path.join(home, ".codex");

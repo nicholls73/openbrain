@@ -189,8 +189,8 @@ async function memoryCommand(command: string | undefined, args: string[]) {
   if (command === "add") {
     const type = readOption(args, "--type") as MemoryType | undefined;
     const text = readOption(args, "--text");
-    if (!type || !["preference", "workflow", "project", "decision", "episode"].includes(type)) {
-      throw new Error("memory add requires --type preference|workflow|project|decision|episode");
+    if (!type || !["preference", "workflow", "workspace", "decision", "episode"].includes(type)) {
+      throw new Error("memory add requires --type preference|workflow|workspace|decision|episode");
     }
     if (!text) {
       throw new Error("memory add requires --text");

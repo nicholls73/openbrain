@@ -1,4 +1,5 @@
-export type MemoryType = "preference" | "workflow" | "project" | "decision" | "episode";
+export type MemoryType = "preference" | "workflow" | "workspace" | "decision" | "episode";
+export type StoredMemoryType = MemoryType | "project";
 
 export interface OpenBrainConfig {
   version: 1;
@@ -65,7 +66,7 @@ export interface AddMemoryInput {
 
 export interface MemoryRecord {
   id: string;
-  type: MemoryType;
+  type: StoredMemoryType;
   title: string;
   path: string;
   createdAt: string;
@@ -76,7 +77,7 @@ export interface AddMemoryResult extends MemoryRecord {}
 
 export interface SearchResult {
   id: string;
-  type: MemoryType;
+  type: StoredMemoryType;
   title: string;
   path: string;
   score: number;

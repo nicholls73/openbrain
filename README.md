@@ -64,7 +64,7 @@ Run guided setup:
 openbrain setup
 ```
 
-Check which brain the current folder will use:
+Check which active brain the current workspace path will use:
 
 ```bash
 openbrain brain current
@@ -101,9 +101,9 @@ openbrain prune
 
 Use one brain for the whole computer, or split your machine into separate memory containers.
 
-If you want one brain everywhere, keep the default config and skip path rules. OpenBrain will use the default `main` brain for every folder.
+If you want one brain everywhere, keep the default config and skip path rules. OpenBrain will use the default `main` brain for every workspace path.
 
-If you want separation between contexts, configure path rules. OpenBrain resolves the current working directory to a brain before reading or writing memories.
+If you want separation between contexts, configure path rules. OpenBrain uses the current workspace path only to choose the active brain. Memories belong to that brain, and the path is just routing.
 
 Example `~/.openbrain/config.json`:
 
@@ -142,7 +142,7 @@ Example `~/.openbrain/config.json`:
 }
 ```
 
-Rules are matched against the current working directory. The most specific matching path wins.
+Rules are matched against the current workspace path. The most specific matching path wins.
 
 `brains.unmatched` controls what happens when no rule matches:
 

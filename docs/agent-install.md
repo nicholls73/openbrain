@@ -2,7 +2,7 @@
 
 You are installing OpenBrain for the user.
 
-Do the install. Ask only the setup questions needed. Verify the result. Do not guess which folders belong to which brain.
+Do the install. Ask only the setup questions needed. Verify the result. Do not guess which workspace paths belong to which brain.
 
 OpenBrain is a local-first shared memory layer for coding agents. It keeps memories on the user's machine as Markdown and uses SQLite plus local embeddings for retrieval.
 
@@ -33,7 +33,7 @@ $HOME/.local/bin
 Ask this first:
 
 1. One brain for the whole computer.
-2. Separate memory containers for specific filesystem paths.
+2. Separate memory containers for specific workspace paths.
 
 If the user chooses one brain, run:
 
@@ -41,7 +41,7 @@ If the user chooses one brain, run:
 openbrain setup --brain-scope default --codex yes
 ```
 
-If the user chooses separate memory containers, ask for brain/path pairs. Do not suggest container names. Then run:
+If the user chooses separate memory containers, ask for brain/path pairs. Do not suggest container names. Paths only choose the active brain; the brain is the memory container. Then run:
 
 ```bash
 openbrain setup --brain-scope paths --path-rule <brain>=<path> --codex yes
@@ -59,13 +59,13 @@ openbrain setup
 
 ## Verify Routing
 
-Run this in each relevant folder:
+Run this in each relevant workspace path:
 
 ```bash
 openbrain brain current
 ```
 
-Confirm that each folder resolves to the expected brain.
+Confirm that each workspace path resolves to the expected active brain.
 
 ## Agent Setup
 

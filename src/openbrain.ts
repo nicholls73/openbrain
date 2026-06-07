@@ -26,6 +26,7 @@ import type {
   OpenBrainOptions,
   SetupInput,
   SetupResult,
+  StoredMemoryType,
   SearchResult
 } from "./types.js";
 
@@ -151,7 +152,7 @@ export async function searchMemories(query: string, options: OpenBrainOptions = 
     for (const row of ftsRows) {
       merged.set(row.id, {
         id: row.id,
-        type: row.type as MemoryType,
+        type: row.type as StoredMemoryType,
         title: row.title,
         path: row.path,
         score: 1 / (1 + Math.abs(row.rank)),
@@ -180,7 +181,7 @@ export async function searchMemories(query: string, options: OpenBrainOptions = 
         } else {
           merged.set(row.id, {
             id: row.id,
-            type: row.type as MemoryType,
+            type: row.type as StoredMemoryType,
             title: row.title,
             path: row.path,
             score,
@@ -571,7 +572,7 @@ function rowToMemoryRecord(row: {
 }) {
   return {
     id: row.id,
-    type: row.type as MemoryType,
+    type: row.type as StoredMemoryType,
     title: row.title,
     path: row.path,
     createdAt: row.created_at,
@@ -623,16 +624,21 @@ function codexBlock() {
   return `${OPENBRAIN_BEGIN}
 ## OpenBrain Memory
 
-OpenBrain selects a separate brain from the current working directory using
+OpenBrain selects the active brain from the current workspace path using
 \`~/.openbrain/config.json\`. Use one default brain for the whole machine, or
 map filesystem paths to separate memory containers when the user wants
 isolation between contexts.
 
-If OpenBrain reports that the current path is not assigned to a brain, ask the
-user which brain should own the path, then run:
+OpenBrain uses the current workspace path only to choose the active brain.
+Treat that brain as the memory container. Refer to memory by brain name or
+active brain. Refer to paths only when configuring brain routing or discussing
+files.
+
+If OpenBrain reports that the current workspace path is not assigned to a brain,
+ask the user which brain should own that workspace path, then run:
 
 \`\`\`bash
-openbrain brain add-path <brain> "<current project path>"
+openbrain brain add-path <brain> "<current workspace path>"
 \`\`\`
 
 Before starting a task, run daily maintenance, then search:
@@ -648,7 +654,7 @@ After a meaningful task, record concise durable memories:
 
 \`\`\`bash
 openbrain memory add --type workflow --text "..."
-openbrain memory add --type project --text "..."
+openbrain memory add --type workspace --text "..."
 openbrain memory add --type preference --text "..."
 openbrain memory add --type decision --text "..."
 openbrain memory add --type episode --text "..."
@@ -657,7 +663,7 @@ openbrain memory add --type episode --text "..."
 Use memory types this way:
 - \`preference\`: user preferences.
 - \`workflow\`: repeated process knowledge.
-- \`project\`: repo or tooling conventions.
+- \`workspace\`: workspace, toolchain, or recurring task conventions.
 - \`decision\`: durable decisions.
 - \`episode\`: short-lived session notes.
 

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { MemoryRecord, MemoryType } from "./types.js";
+import type { MemoryRecord, StoredMemoryType } from "./types.js";
 
 const FRONTMATTER = /^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/;
 
@@ -52,7 +52,7 @@ export async function parseMemoryFile(filePath: string): Promise<MemoryRecord> {
   const meta = parseFrontmatter(match[1] ?? "");
   return {
     id: required(meta, "id", filePath),
-    type: required(meta, "type", filePath) as MemoryType,
+    type: required(meta, "type", filePath) as StoredMemoryType,
     title: required(meta, "title", filePath),
     path: filePath,
     createdAt: required(meta, "createdAt", filePath),
