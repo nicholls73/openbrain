@@ -1,5 +1,7 @@
 # OpenBrain
 
+![Cute cartoon brain illustration](docs/assets/openbrain-readme-hero.png)
+
 One local brain for every coding agent on your machine.
 
 You switch between Codex, Claude Code, OpenCode, and whatever comes next. They all need the same context. OpenBrain gives them one shared memory layer: readable Markdown as the source of truth, SQLite as a rebuildable search index, and local embeddings when semantic search helps.
