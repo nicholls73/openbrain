@@ -33,6 +33,7 @@ describe("install script", () => {
 
     expect(stdout).toContain("curl -fsSL");
     expect(stdout).toContain("OPENBRAIN_INSTALL_DIR");
+    expect(stdout).toContain("openbrain setup");
   });
 
   test("installs from a local source directory and creates an openbrain executable", async () => {
@@ -61,5 +62,6 @@ describe("install script", () => {
       }
     });
     expect(stdout).toContain("openbrain init");
+    expect(stdout).toContain("openbrain setup");
   }, 90_000);
 });

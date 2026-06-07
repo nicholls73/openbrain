@@ -22,8 +22,7 @@ Environment:
   OPENBRAIN_SOURCE_DIR   Local source directory for development/testing installs.
 
 After install:
-  openbrain init
-  openbrain agents sync codex
+  openbrain setup
 EOF
 }
 
@@ -134,7 +133,7 @@ EOF
     log "add this to your shell profile if openbrain is not found:"
     log "export PATH=\"$OPENBRAIN_BIN_DIR:\$PATH\""
   fi
-  log "next: openbrain init && openbrain agents sync codex"
+  log "next: openbrain setup"
 }
 
 install_openbrain

@@ -8,7 +8,7 @@ No hosted memory API. No SaaS account. No secret sync. Just files under `~/.open
 
 ## For Humans
 
-Strongly recommended: let an agent install OpenBrain for you. The setup involves shell access, PATH checks, optional brain routing, and agent instruction files. Agents are good at following that checklist.
+Strongly recommended: let an agent install OpenBrain for you. The agent should ask a few concise setup questions, use its native question UI if it has one, then run the setup command for you.
 
 Paste this into Codex, Claude Code, OpenCode, or another coding agent running in full privilege mode:
 
@@ -56,16 +56,10 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## First Run Manually
 
-Initialize local state:
+Run guided setup:
 
 ```bash
-openbrain init
-```
-
-Wire Codex into OpenBrain:
-
-```bash
-openbrain agents sync codex
+openbrain setup
 ```
 
 Check which brain the current folder will use:
@@ -74,7 +68,14 @@ Check which brain the current folder will use:
 openbrain brain current
 ```
 
-After this, Codex knows when to search and write memories.
+If you already know the choices, setup can be non-interactive:
+
+```bash
+openbrain setup --brain-scope default --codex yes
+openbrain setup --brain-scope paths --path-rule brain-a=/Users/you/path-a --codex yes
+```
+
+After this, configured agents know when to search and write memories.
 
 ## Agent Use
 

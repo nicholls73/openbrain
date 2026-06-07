@@ -2,9 +2,11 @@
 
 You are installing OpenBrain for the user.
 
-Do the install. Ask the setup questions. Verify the result. Do not guess which folders belong to which brain.
+Do the install. Ask only the setup questions needed. Verify the result. Do not guess which folders belong to which brain.
 
 OpenBrain is a local-first shared memory layer for coding agents. It keeps memories on the user's machine as Markdown and uses SQLite plus local embeddings for retrieval.
+
+If your agent supports a native question UI, use it for setup choices. Examples include Codex `request_user_input` and Claude Code question-style prompts. If no native question UI is available, ask short text questions in chat.
 
 ## Permission Requirement
 
@@ -26,30 +28,34 @@ If `openbrain` is not found after install, ask before modifying the user's shell
 $HOME/.local/bin
 ```
 
-## Initialize
+## Setup Questions
 
-Run:
-
-```bash
-openbrain init
-```
-
-## Choose Brain Setup
-
-Before changing configuration, ask the user whether they want:
+Ask this first:
 
 1. One brain for the whole computer.
 2. Separate memory containers for specific filesystem paths.
 
-If the user chooses one brain, keep the default brain for all paths. Do not create path rules.
-
-If the user chooses separate memory containers, ask them to name each container and provide the filesystem paths that belong to it. Do not suggest container names. Then run:
+If the user chooses one brain, run:
 
 ```bash
-openbrain brain add-path <brain> "<path>"
+openbrain setup --brain-scope default --codex yes
 ```
 
-Repeat that command for each path the user gives you.
+If the user chooses separate memory containers, ask for brain/path pairs. Do not suggest container names. Then run:
+
+```bash
+openbrain setup --brain-scope paths --path-rule <brain>=<path> --codex yes
+```
+
+Repeat `--path-rule <brain>=<path>` for each pair the user gives you.
+
+If the user does not want Codex integration, use `--codex no`.
+
+If you cannot collect choices through chat or native question UI, run interactive setup:
+
+```bash
+openbrain setup
+```
 
 ## Verify Routing
 
@@ -63,13 +69,7 @@ Confirm that each folder resolves to the expected brain.
 
 ## Agent Setup
 
-OpenBrain currently ships a Codex adapter. Ask before modifying agent instruction files.
-
-If the user wants Codex integration, run:
-
-```bash
-openbrain agents sync codex
-```
+OpenBrain currently ships a Codex adapter. `openbrain setup --codex yes` writes it.
 
 The Codex adapter will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today.
 

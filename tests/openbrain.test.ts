@@ -16,6 +16,7 @@ import {
   rebuildIndex,
   searchMemories,
   showMemory,
+  setupOpenBrain,
   syncCodexAgent
 } from "../src/openbrain.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
@@ -220,6 +221,74 @@ describe("OpenBrain local storage", () => {
     });
     expect(config.retrieval.limit).toBe(5);
     expect(config.agents.codex.enabled).toBe(true);
+  });
+
+  test("guided setup can keep one default brain and sync Codex instructions", async () => {
+    const home = await tempHome();
+    const codexHome = path.join(home, ".codex");
+
+    const result = await setupOpenBrain(
+      {
+        brainScope: "default",
+        syncCodex: true
+      },
+      { ...options(home), codexHome }
+    );
+    const config = await loadConfig(options(home));
+
+    expect(config.brains).toMatchObject({
+      default: "main",
+      unmatched: "default",
+      pathRules: []
+    });
+    expect(result).toMatchObject({
+      brainScope: "default",
+      currentBrain: "main",
+      codexAgentFile: path.join(codexHome, "AGENTS.md")
+    });
+    await expect(readFile(path.join(codexHome, "AGENTS.md"), "utf8")).resolves.toContain(
+      "BEGIN OPENBRAIN"
+    );
+  });
+
+  test("guided setup can configure path-specific brains and ask on unmatched paths", async () => {
+    const home = await tempHome();
+    const projectPath = path.join(home, "projects", "alpha");
+
+    const result = await setupOpenBrain(
+      {
+        brainScope: "paths",
+        pathRules: [
+          {
+            brain: "Brain A",
+            path: projectPath
+          }
+        ],
+        syncCodex: false
+      },
+      options(home)
+    );
+    const config = await loadConfig(options(home));
+
+    expect(config.brains.unmatched).toBe("ask");
+    expect(config.brains.pathRules).toEqual([
+      {
+        brain: "brain-a",
+        paths: [projectPath]
+      }
+    ]);
+    expect(result).toMatchObject({
+      brainScope: "paths",
+      currentBrain: "brain-a",
+      pathRules: [
+        {
+          brain: "brain-a",
+          path: projectPath
+        }
+      ]
+    });
+    expect(await getCurrentBrain({ ...options(home), cwd: projectPath })).toBe("brain-a");
+    expect(await getCurrentBrain({ ...options(home), cwd: path.join(home, "unmatched") })).toBe("ask:main");
   });
 
   test("adds Markdown memories and finds them through FTS", async () => {

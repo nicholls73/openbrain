@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createInterface } from "node:readline/promises";
 import {
   addMemory,
   addBrainPath,
@@ -12,9 +13,10 @@ import {
   rebuildIndex,
   searchMemories,
   showMemory,
+  setupOpenBrain,
   syncCodexAgent
 } from "./openbrain.js";
-import type { MemoryType, SearchResult } from "./types.js";
+import type { MemoryType, SearchResult, SetupInput, SetupPathRuleInput } from "./types.js";
 
 async function main(argv: string[]) {
   const [area, command, ...rest] = argv;
@@ -22,6 +24,11 @@ async function main(argv: string[]) {
   if (area === "init") {
     await initOpenBrain();
     console.log("OpenBrain initialized.");
+    return;
+  }
+
+  if (area === "setup") {
+    await setupCommand([command, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 
@@ -97,6 +104,87 @@ async function dreamCommand(command: string | undefined, args: string[]) {
   usage();
 }
 
+async function setupCommand(args: string[]) {
+  const input = await readSetupInput(args);
+  const result = await setupOpenBrain(input);
+
+  console.log("OpenBrain setup complete.");
+  console.log(`Brain setup: ${result.brainScope === "default" ? "one brain" : "path-specific brains"}`);
+  console.log(`Current brain: ${result.currentBrain}`);
+  for (const rule of result.pathRules) {
+    console.log(`Path rule: ${rule.brain}\t${rule.path}`);
+  }
+  console.log(`Codex: ${result.codexAgentFile ? result.codexAgentFile : "not synced"}`);
+}
+
+async function readSetupInput(args: string[]): Promise<SetupInput> {
+  const brainScope = readOption(args, "--brain-scope") as SetupInput["brainScope"] | undefined;
+  const codex = readOption(args, "--codex");
+  const pathRules = readOptions(args, "--path-rule").map(parsePathRule);
+
+  if (brainScope && !["default", "paths"].includes(brainScope)) {
+    throw new Error("setup --brain-scope must be default or paths");
+  }
+
+  if (brainScope && codex) {
+    return {
+      brainScope,
+      pathRules,
+      syncCodex: parseYesNo(codex, "--codex")
+    };
+  }
+
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      "setup needs answers. Run interactively, or pass --brain-scope default|paths and --codex yes|no."
+    );
+  }
+
+  const prompt = createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  try {
+    const resolvedScope = brainScope ?? (await askBrainScope(prompt));
+    const resolvedPathRules =
+      resolvedScope === "paths" && pathRules.length === 0 ? await askPathRules(prompt) : pathRules;
+    const resolvedCodex = codex ? parseYesNo(codex, "--codex") : await askYesNo(prompt, "Sync Codex? [Y/n] ");
+
+    return {
+      brainScope: resolvedScope,
+      pathRules: resolvedPathRules,
+      syncCodex: resolvedCodex
+    };
+  } finally {
+    prompt.close();
+  }
+}
+
+async function askBrainScope(prompt: ReturnType<typeof createInterface>): Promise<SetupInput["brainScope"]> {
+  const oneBrain = await askYesNo(prompt, "One brain for this machine? [Y/n] ");
+  return oneBrain ? "default" : "paths";
+}
+
+async function askPathRules(prompt: ReturnType<typeof createInterface>) {
+  const rules: SetupPathRuleInput[] = [];
+  while (true) {
+    const answer = (await prompt.question("Path rule brain=/path (blank when done): ")).trim();
+    if (!answer) {
+      break;
+    }
+    rules.push(parsePathRule(answer));
+  }
+  if (!rules.length) {
+    throw new Error("path-specific setup requires at least one path rule");
+  }
+  return rules;
+}
+
+async function askYesNo(prompt: ReturnType<typeof createInterface>, question: string) {
+  const answer = (await prompt.question(question)).trim().toLowerCase();
+  return answer === "" || answer === "y" || answer === "yes";
+}
+
 async function memoryCommand(command: string | undefined, args: string[]) {
   if (command === "add") {
     const type = readOption(args, "--type") as MemoryType | undefined;
@@ -159,6 +247,38 @@ function readOption(args: string[], name: string) {
   return args[index + 1];
 }
 
+function readOptions(args: string[], name: string) {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === name && args[index + 1]) {
+      values.push(args[index + 1]!);
+    }
+  }
+  return values;
+}
+
+function parsePathRule(value: string): SetupPathRuleInput {
+  const separator = value.indexOf("=");
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new Error("setup --path-rule must be brain=/path");
+  }
+  return {
+    brain: value.slice(0, separator),
+    path: value.slice(separator + 1)
+  };
+}
+
+function parseYesNo(value: string, optionName: string) {
+  const normalized = value.trim().toLowerCase();
+  if (["yes", "y", "true"].includes(normalized)) {
+    return true;
+  }
+  if (["no", "n", "false"].includes(normalized)) {
+    return false;
+  }
+  throw new Error(`${optionName} must be yes or no`);
+}
+
 function printSearchResults(results: SearchResult[]) {
   if (!results.length) {
     console.log("No memories found.");
@@ -187,6 +307,7 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
 function usage() {
   console.log(`Usage:
   openbrain init
+  openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no]
   openbrain agents sync codex
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]

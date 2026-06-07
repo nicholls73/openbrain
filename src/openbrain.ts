@@ -24,6 +24,8 @@ import type {
   MemoryRecord,
   MemoryType,
   OpenBrainOptions,
+  SetupInput,
+  SetupResult,
   SearchResult
 } from "./types.js";
 
@@ -34,6 +36,48 @@ export async function initOpenBrain(options: OpenBrainOptions = {}) {
   const { options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
   db.close();
+}
+
+export async function setupOpenBrain(
+  input: SetupInput,
+  options: OpenBrainOptions = {}
+): Promise<SetupResult> {
+  await mkdir(openBrainHome(options), { recursive: true });
+  const config = await loadConfig(options);
+  let pathRules: SetupResult["pathRules"] = [];
+
+  if (input.brainScope === "default") {
+    config.brains.unmatched = "default";
+    config.brains.pathRules = [];
+    await saveConfig(config, options);
+    await initOpenBrain({ ...options, brain: config.brains.default });
+  } else {
+    if (!input.pathRules?.length) {
+      throw new Error("setup with path-specific brains requires at least one path rule");
+    }
+    config.brains.unmatched = "ask";
+    config.brains.pathRules = [];
+    await saveConfig(config, options);
+
+    for (const rule of input.pathRules) {
+      const added = await addBrainPath(rule.brain, rule.path, options);
+      pathRules.push(added);
+      await initOpenBrain({ ...options, brain: added.brain });
+    }
+  }
+
+  const codexAgentFile = input.syncCodex ? await syncCodexAgent(options) : undefined;
+  const currentBrain =
+    input.brainScope === "paths"
+      ? await getCurrentBrain({ ...options, cwd: pathRules[0]!.path })
+      : await getCurrentBrain(options);
+
+  return {
+    brainScope: input.brainScope,
+    currentBrain,
+    pathRules,
+    codexAgentFile
+  };
 }
 
 export async function getCurrentBrain(options: OpenBrainOptions = {}) {
@@ -267,7 +311,8 @@ export async function dreamRun(options: OpenBrainOptions = {}): Promise<DreamRes
 }
 
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
-  await initOpenBrain(options);
+  const config = await loadConfig(options);
+  await initOpenBrain({ ...options, brain: config.brains.default });
   const dir = codexHome(options);
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, "AGENTS.md");

@@ -29,9 +29,10 @@ export const DEFAULT_CONFIG: OpenBrainConfig = {
 
 export async function writeDefaultConfig(options: OpenBrainOptions = {}) {
   const file = configPath(options);
+  const config = defaultConfig();
   await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`, "utf8");
-  return DEFAULT_CONFIG;
+  await writeFile(file, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  return config;
 }
 
 export async function loadConfig(options: OpenBrainOptions = {}) {
@@ -53,28 +54,50 @@ export async function saveConfig(config: OpenBrainConfig, options: OpenBrainOpti
 }
 
 function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
+  const defaults = defaultConfig();
   return {
-    ...DEFAULT_CONFIG,
+    ...defaults,
     ...raw,
     brains: {
-      ...DEFAULT_CONFIG.brains,
+      ...defaults.brains,
       ...raw.brains,
-      pathRules: raw.brains?.pathRules ?? DEFAULT_CONFIG.brains.pathRules
+      pathRules: raw.brains?.pathRules ?? defaults.brains.pathRules
     },
     embeddings: {
-      ...DEFAULT_CONFIG.embeddings,
+      ...defaults.embeddings,
       ...raw.embeddings
     },
     retrieval: {
-      ...DEFAULT_CONFIG.retrieval,
+      ...defaults.retrieval,
       ...raw.retrieval
     },
     agents: {
-      ...DEFAULT_CONFIG.agents,
+      ...defaults.agents,
       ...raw.agents,
       codex: {
-        ...DEFAULT_CONFIG.agents.codex,
+        ...defaults.agents.codex,
         ...raw.agents?.codex
+      }
+    }
+  };
+}
+
+function defaultConfig(): OpenBrainConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    brains: {
+      ...DEFAULT_CONFIG.brains,
+      pathRules: [...DEFAULT_CONFIG.brains.pathRules]
+    },
+    embeddings: {
+      ...DEFAULT_CONFIG.embeddings
+    },
+    retrieval: {
+      ...DEFAULT_CONFIG.retrieval
+    },
+    agents: {
+      codex: {
+        ...DEFAULT_CONFIG.agents.codex
       }
     }
   };

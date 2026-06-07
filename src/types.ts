@@ -40,6 +40,24 @@ export interface OpenBrainOptions {
   embedder?: EmbeddingProvider;
 }
 
+export interface SetupPathRuleInput {
+  brain: string;
+  path: string;
+}
+
+export interface SetupInput {
+  brainScope: "default" | "paths";
+  pathRules?: SetupPathRuleInput[];
+  syncCodex: boolean;
+}
+
+export interface SetupResult {
+  brainScope: SetupInput["brainScope"];
+  currentBrain: string;
+  pathRules: SetupPathRuleInput[];
+  codexAgentFile?: string;
+}
+
 export interface AddMemoryInput {
   type: MemoryType;
   text: string;
