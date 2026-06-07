@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { loadConfig } from "../src/config.js";
 import {
@@ -22,6 +23,7 @@ import {
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
 
 const tempRoots: string[] = [];
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 async function tempHome() {
   const root = await mkdtemp(path.join(tmpdir(), "openbrain-test-"));
@@ -44,6 +46,16 @@ function options(home: string, embedder?: EmbeddingProvider): OpenBrainOptions {
 }
 
 describe("OpenBrain local storage", () => {
+  test("uses a stable SQLite dependency instead of Node experimental sqlite", async () => {
+    const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    const dbSource = await readFile(path.join(repoRoot, "src", "db.ts"), "utf8");
+
+    expect(packageJson.dependencies).toHaveProperty("better-sqlite3");
+    expect(dbSource).not.toContain("node:sqlite");
+  });
+
   test("init creates folders, config, and SQLite database", async () => {
     const home = await tempHome();
 
