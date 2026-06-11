@@ -85,6 +85,29 @@ OpenBrain is not meant to be a daily human note-taking CLI. Humans install it, c
 
 At task start, the agent quietly checks whether the active brain has already dreamed today, then searches for relevant memory. After meaningful work, the agent writes concise memories back to the right container. You should not need to run memory commands directly during normal use.
 
+### Memory Quality
+
+OpenBrain works best when durable memories describe reusable guidance rather than fast-changing work logs.
+
+Good durable memories include:
+
+- User preferences and standing instructions.
+- Repeated workflows, checklists, and classification rules.
+- Stable workspace or toolchain conventions.
+- Durable decisions and the reason behind them.
+
+Use `episode` for short-lived handoff context or fast-changing facts. Avoid turning branch names, PR numbers, commit IDs, stale local state, exact files touched, copied fixture values, prior implementation shape, or one-off debugging details into durable memories.
+
+For POC or reference work, agents should classify each piece before remembering it:
+
+- UI behavior.
+- Calculation.
+- Data contract.
+- Fixture.
+- Product assumption.
+
+The durable memory should usually be the reusable rule, not the copied constant or the path that happened to be edited last time.
+
 Useful inspection and maintenance commands:
 
 ```bash

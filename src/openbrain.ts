@@ -660,12 +660,25 @@ openbrain memory add --type decision --text "..."
 openbrain memory add --type episode --text "..."
 \`\`\`
 
+Record durable memories only when the guidance is likely to stay useful across
+future tasks. Prefer principles, preferences, repeated workflows, stable
+workspace conventions, and durable decisions. Do not store branch names, PR
+numbers, commit IDs, stale local state, exact files touched, copied fixture
+values, one-off implementation details, or anything likely to drift quickly as
+durable memory. If short-lived handoff context is useful, store it as
+\`episode\`.
+
 Use memory types this way:
-- \`preference\`: user preferences.
-- \`workflow\`: repeated process knowledge.
-- \`workspace\`: workspace, toolchain, or recurring task conventions.
-- \`decision\`: durable decisions.
-- \`episode\`: short-lived session notes.
+- \`preference\`: user preferences and standing instructions.
+- \`workflow\`: repeated process knowledge, checklists, and classification rules.
+- \`workspace\`: stable workspace, toolchain, or recurring task conventions.
+- \`decision\`: durable choices and their reason.
+- \`episode\`: short-lived session notes, handoff state, or fast-changing facts.
+
+For POC or reference work, classify details before storing them. Keep the
+reusable rule, such as how to separate UI, calculation, data contract, fixture,
+and product assumption. Avoid storing copied constants or prior implementation
+shape unless the user explicitly asks for that context to be remembered.
 
 Never store secrets, credentials, sensitive details, or temporary one-off facts.
 ${OPENBRAIN_END}`;

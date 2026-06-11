@@ -481,7 +481,12 @@ describe("Codex adapter sync", () => {
     expect(agentFile).toContain("active brain. Refer to paths only when configuring brain routing or discussing");
     expect(agentFile).toContain('openbrain brain add-path <brain> "<current workspace path>"');
     expect(agentFile).toContain('openbrain memory add --type workspace --text "..."');
-    expect(agentFile).toContain("- `workspace`: workspace, toolchain, or recurring task conventions.");
+    expect(agentFile).toContain("Record durable memories only when the guidance is likely to stay useful");
+    expect(agentFile).toContain("Do not store branch names, PR");
+    expect(agentFile).toContain("If short-lived handoff context is useful, store it as");
+    expect(agentFile).toContain("For POC or reference work, classify details before storing them.");
+    expect(agentFile).toContain("- `workspace`: stable workspace, toolchain, or recurring task conventions.");
+    expect(agentFile).toContain("- `episode`: short-lived session notes, handoff state, or fast-changing facts.");
     expect(agentFile).not.toContain("<current project path>");
     expect(agentFile).not.toContain("repo or tooling conventions");
     expect(agentFile).not.toContain("openbrain memory add --type project --text");
