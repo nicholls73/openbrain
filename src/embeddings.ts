@@ -25,13 +25,24 @@ export async function embedWithTimeout(
   text: string,
   timeoutMs: number
 ): Promise<number[] | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       provider.embed(text),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+        // Do not let a pending embedding timeout keep the CLI process alive.
+        timer.unref();
+      })
     ]);
   } catch {
     return null;
+  } finally {
+    // When embedding wins the race, cancel the still-pending timer so it does
+    // not fire (and hold the event loop) for the rest of timeoutMs.
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
