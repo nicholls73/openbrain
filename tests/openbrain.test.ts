@@ -397,6 +397,29 @@ describe("OpenBrain local storage", () => {
     }
   });
 
+  test("fuses FTS and vector hits with reciprocal rank fusion", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed(text: string) {
+        return text.toLowerCase().includes("deploy") ? [1, 0, 0] : [0, 1, 0];
+      }
+    };
+    await initOpenBrain(options(home, embedder));
+    const both = await addMemory(
+      { type: "workflow", text: "Deploy pipeline runbook for staging releases." },
+      options(home, embedder)
+    );
+    await addMemory(
+      { type: "workflow", text: "Unrelated note about cat feeding schedule." },
+      options(home, embedder)
+    );
+
+    const results = await searchMemories("deploy", options(home, embedder));
+
+    expect(results[0]?.id).toBe(both.id);
+    expect(results[0]?.match).toBe("hybrid");
+  });
+
   test("falls back to FTS when embeddings fail", async () => {
     const home = await tempHome();
     const failingEmbedder: EmbeddingProvider = {
