@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
 import {
   addMemory,
@@ -350,6 +350,37 @@ describe("OpenBrain local storage", () => {
 
     expect(results[0]?.title).toBe("When Copilot feedback appears on a PR");
     expect(results[0]?.match).toBe("vector");
+  });
+
+  test("skips stored embeddings whose dimensions no longer match the model", async () => {
+    const home = await tempHome();
+    const wideEmbedder: EmbeddingProvider = {
+      async embed() {
+        return [1, 0, 0];
+      }
+    };
+    await initOpenBrain(options(home, wideEmbedder));
+    const added = await addMemory(
+      { type: "preference", text: "James prefers pnpm for TypeScript projects." },
+      options(home, wideEmbedder)
+    );
+
+    const narrowEmbedder: EmbeddingProvider = {
+      async embed() {
+        return [1, 0];
+      }
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const results = await searchMemories("pnpm TypeScript", options(home, narrowEmbedder));
+
+      expect(results[0]?.id).toBe(added.id);
+      expect(results[0]?.match).toBe("fts");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("index rebuild");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("falls back to FTS when embeddings fail", async () => {

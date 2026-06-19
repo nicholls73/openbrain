@@ -164,14 +164,32 @@ export async function searchMemories(query: string, options: OpenBrainOptions = 
     const provider = resolveEmbedder(config, options);
     const queryEmbedding = await embedWithTimeout(provider, query, config.embeddings.timeoutMs);
     if (queryEmbedding) {
+      // Stored embeddings whose length differs from the current model's output
+      // can never match (cosine returns 0). That used to be silent, so swapping
+      // the embedding model quietly disabled semantic search for every existing
+      // memory. Skip those rows explicitly and tell the user to re-embed.
+      let dimensionMismatches = 0;
       const vectorRows = allRowsWithEmbeddings(db)
-        .map((row) => ({
-          row,
-          score: cosine(queryEmbedding, JSON.parse(row.embedding ?? "[]") as number[])
-        }))
+        .map((row) => ({ row, embedding: JSON.parse(row.embedding ?? "[]") as number[] }))
+        .filter(({ embedding }) => {
+          if (embedding.length !== queryEmbedding.length) {
+            dimensionMismatches += 1;
+            return false;
+          }
+          return true;
+        })
+        .map(({ row, embedding }) => ({ row, score: cosine(queryEmbedding, embedding) }))
         .filter((result) => result.score > 0)
         .sort((left, right) => right.score - left.score)
         .slice(0, limit);
+
+      if (dimensionMismatches > 0) {
+        console.warn(
+          `openbrain: skipped ${dimensionMismatches} memor${dimensionMismatches === 1 ? "y" : "ies"} ` +
+            `with embeddings that no longer match the current model (${queryEmbedding.length} dims). ` +
+            `Run "openbrain index rebuild" to re-embed them.`
+        );
+      }
 
       for (const { row, score } of vectorRows) {
         const existing = merged.get(row.id);
