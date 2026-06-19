@@ -20,6 +20,12 @@ export async function openDatabase(options: OpenBrainOptions = {}) {
   const file = dbPath(options);
   await mkdir(dirname(file), { recursive: true });
   const db = new Database(file);
+  // OpenBrain is shared by every coding agent on the machine, so multiple
+  // processes open this database concurrently. WAL allows a reader and a
+  // writer at once, and busy_timeout makes a competing writer wait for the
+  // lock instead of failing immediately with SQLITE_BUSY.
+  db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,

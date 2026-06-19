@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
+import { openDatabase } from "../src/db.js";
 import {
   addMemory,
   addBrainPath,
@@ -65,6 +66,19 @@ describe("OpenBrain local storage", () => {
       "\"retentionDays\": 30"
     );
     await expect(readFile(path.join(home, "brains", "main", "openbrain.db"))).resolves.toBeInstanceOf(Buffer);
+  });
+
+  test("opens the database in WAL mode with a busy timeout for concurrent agents", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const db = await openDatabase({ home, brain: "main" });
+    try {
+      expect(String(db.pragma("journal_mode", { simple: true })).toLowerCase()).toBe("wal");
+      expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+    } finally {
+      db.close();
+    }
   });
 
   test("selects isolated brains from configured current working directory paths", async () => {
