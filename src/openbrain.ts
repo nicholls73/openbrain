@@ -12,6 +12,7 @@ import {
   openDatabase,
   upsertMemory
 } from "./db.js";
+import type { IndexedMemoryRow } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { brainHome, codexHome, dreamsDir, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
 import { parseMemoryFile, renderMemoryMarkdown, slugify, titleFromText } from "./markdown.js";
@@ -146,20 +147,31 @@ export async function searchMemories(query: string, options: OpenBrainOptions = 
   const db = await openDatabase(scopedOptions);
   try {
     const limit = config.retrieval.limit;
-    const ftsRows = ftsSearch(db, toFtsQuery(query), limit);
-    const merged = new Map<string, SearchResult>();
 
-    for (const row of ftsRows) {
-      merged.set(row.id, {
-        id: row.id,
-        type: row.type as StoredMemoryType,
-        title: row.title,
-        path: row.path,
-        score: 1 / (1 + Math.abs(row.rank)),
-        excerpt: excerpt(row.body, query),
-        match: "fts"
+    // Reciprocal Rank Fusion combines the FTS and vector result lists by their
+    // rank position, not by their raw scores. bm25 ranks and cosine similarity
+    // live on different, incomparable scales, so a raw-score merge let whichever
+    // scale ran larger dominate regardless of relevance.
+    const RRF_K = 60;
+    const fused = new Map<
+      string,
+      { row: IndexedMemoryRow; score: number; matches: Set<"fts" | "vector"> }
+    >();
+
+    const fuse = (rows: IndexedMemoryRow[], match: "fts" | "vector") => {
+      rows.forEach((row, index) => {
+        const contribution = 1 / (RRF_K + index + 1);
+        const existing = fused.get(row.id);
+        if (existing) {
+          existing.score += contribution;
+          existing.matches.add(match);
+        } else {
+          fused.set(row.id, { row, score: contribution, matches: new Set([match]) });
+        }
       });
-    }
+    };
+
+    fuse(ftsSearch(db, toFtsQuery(query), limit), "fts");
 
     const provider = resolveEmbedder(config, options);
     const queryEmbedding = await embedWithTimeout(provider, query, config.embeddings.timeoutMs);
@@ -181,7 +193,8 @@ export async function searchMemories(query: string, options: OpenBrainOptions = 
         .map(({ row, embedding }) => ({ row, score: cosine(queryEmbedding, embedding) }))
         .filter((result) => result.score > 0)
         .sort((left, right) => right.score - left.score)
-        .slice(0, limit);
+        .slice(0, limit)
+        .map((result) => result.row);
 
       if (dimensionMismatches > 0) {
         console.warn(
@@ -191,28 +204,21 @@ export async function searchMemories(query: string, options: OpenBrainOptions = 
         );
       }
 
-      for (const { row, score } of vectorRows) {
-        const existing = merged.get(row.id);
-        if (existing) {
-          existing.score = Math.max(existing.score, score);
-          existing.match = "hybrid";
-        } else {
-          merged.set(row.id, {
-            id: row.id,
-            type: row.type as StoredMemoryType,
-            title: row.title,
-            path: row.path,
-            score,
-            excerpt: excerpt(row.body, query),
-            match: "vector"
-          });
-        }
-      }
+      fuse(vectorRows, "vector");
     }
 
-    return Array.from(merged.values())
+    return Array.from(fused.values())
       .sort((left, right) => right.score - left.score)
-      .slice(0, limit);
+      .slice(0, limit)
+      .map(({ row, score, matches }): SearchResult => ({
+        id: row.id,
+        type: row.type as StoredMemoryType,
+        title: row.title,
+        path: row.path,
+        score,
+        excerpt: excerpt(row.body, query),
+        match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")
+      }));
   } finally {
     db.close();
   }
