@@ -258,7 +258,7 @@ export async function deleteMemory(id: string, options: OpenBrainOptions = {}) {
 }
 
 export async function rebuildIndex(options: OpenBrainOptions = {}) {
-  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const { config, options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
   try {
     clearIndex(db);
@@ -266,9 +266,12 @@ export async function rebuildIndex(options: OpenBrainOptions = {}) {
     db.close();
   }
 
+  // Build the embedder once and reuse it for every file. Creating a provider
+  // per file would reload the local embedding model on each iteration.
+  const provider = resolveEmbedder(config, scopedOptions);
   for (const filePath of await memoryFiles(scopedOptions)) {
     const record = await parseMemoryFile(filePath);
-    await indexMemoryRecord(record, scopedOptions);
+    await indexMemoryRecord(record, scopedOptions, { config, provider });
   }
 }
 
@@ -354,9 +357,13 @@ export async function syncCodexAgent(options: OpenBrainOptions = {}) {
   return file;
 }
 
-async function indexMemoryRecord(record: MemoryRecord, options: OpenBrainOptions) {
-  const config = await loadConfig(options);
-  const provider = resolveEmbedder(config, options);
+async function indexMemoryRecord(
+  record: MemoryRecord,
+  options: OpenBrainOptions,
+  context: { config?: Awaited<ReturnType<typeof loadConfig>>; provider?: EmbeddingProvider } = {}
+) {
+  const config = context.config ?? (await loadConfig(options));
+  const provider = context.provider ?? resolveEmbedder(config, options);
   const embedding = await embedWithTimeout(provider, `${record.title}\n\n${record.body}`, config.embeddings.timeoutMs);
   const db = await openDatabase(options);
   try {

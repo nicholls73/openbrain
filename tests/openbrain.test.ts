@@ -442,6 +442,25 @@ describe("OpenBrain local storage", () => {
     expect(await searchMemories("canonical memory", options(home))).toHaveLength(0);
   });
 
+  test("rebuild embeds each memory exactly once with a shared embedder", async () => {
+    const home = await tempHome();
+    let embedCalls = 0;
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        embedCalls += 1;
+        return [1, 0, 0];
+      }
+    };
+    await initOpenBrain(options(home, embedder));
+    await addMemory({ type: "workflow", text: "first durable memory" }, options(home, embedder));
+    await addMemory({ type: "decision", text: "second durable memory" }, options(home, embedder));
+
+    embedCalls = 0;
+    await rebuildIndex(options(home, embedder));
+
+    expect(embedCalls).toBe(2);
+  });
+
   test("prune removes old episode logs without deleting durable memories", async () => {
     const home = await tempHome();
     await initOpenBrain(options(home));
