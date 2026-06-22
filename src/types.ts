@@ -1,5 +1,18 @@
 export type MemoryType = "preference" | "workflow" | "workspace" | "decision" | "episode";
 export type StoredMemoryType = MemoryType | "project";
+export type DurableMemoryType = Exclude<MemoryType, "episode">;
+export type MemoryConfidence = "low" | "medium" | "high";
+export type MemorySensitivity = "standard" | "private";
+
+export interface MemoryMetadata {
+  source: string;
+  scope: string;
+  confidence: MemoryConfidence;
+  expiresAt?: string;
+  promotedFrom?: string;
+  sensitivity: MemorySensitivity;
+  promoteAs?: DurableMemoryType;
+}
 
 export interface OpenBrainConfig {
   version: 1;
@@ -62,6 +75,7 @@ export interface SetupResult {
 export interface AddMemoryInput {
   type: MemoryType;
   text: string;
+  metadata?: Partial<MemoryMetadata>;
 }
 
 export interface MemoryRecord {
@@ -71,6 +85,7 @@ export interface MemoryRecord {
   path: string;
   createdAt: string;
   body: string;
+  metadata: MemoryMetadata;
 }
 
 export interface AddMemoryResult extends MemoryRecord {}
@@ -80,9 +95,30 @@ export interface SearchResult {
   type: StoredMemoryType;
   title: string;
   path: string;
+  source: string;
+  scope: string;
+  confidence: MemoryConfidence;
+  expiresAt?: string;
+  promotedFrom?: string;
+  sensitivity: MemorySensitivity;
+  promoteAs?: DurableMemoryType;
   score: number;
   excerpt: string;
   match: "fts" | "vector" | "hybrid";
+}
+
+export interface SearchMemoriesOptions extends OpenBrainOptions {
+  type?: StoredMemoryType;
+  scope?: string;
+  confidence?: MemoryConfidence;
+  durableOnly?: boolean;
+  includePrivate?: boolean;
+}
+
+export interface PromoteMemoryInput {
+  episodeId: string;
+  type: DurableMemoryType;
+  text: string;
 }
 
 export interface DreamRunResult {
@@ -92,6 +128,7 @@ export interface DreamRunResult {
   prunedEpisodes: number;
   rebuiltIndex: boolean;
   logPath: string;
+  promotionCandidatesPath?: string;
 }
 
 export interface DreamSkippedResult {
@@ -102,3 +139,15 @@ export interface DreamSkippedResult {
 }
 
 export type DreamResult = DreamRunResult | DreamSkippedResult;
+
+export function isMemoryType(value: string | undefined): value is MemoryType {
+  return value === "preference" || value === "workflow" || value === "workspace" || value === "decision" || value === "episode";
+}
+
+export function isDurableMemoryType(value: string | undefined): value is DurableMemoryType {
+  return value === "preference" || value === "workflow" || value === "workspace" || value === "decision";
+}
+
+export function isStoredMemoryType(value: string | undefined): value is StoredMemoryType {
+  return isMemoryType(value) || value === "project";
+}

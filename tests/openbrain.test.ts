@@ -15,6 +15,7 @@ import {
   getCurrentBrain,
   listMemories,
   pruneEpisodes,
+  promoteMemory,
   rebuildIndex,
   searchMemories,
   showMemory,
@@ -22,6 +23,7 @@ import {
   syncCodexAgent
 } from "../src/openbrain.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
+import { isMemoryType, isStoredMemoryType } from "../src/types.js";
 
 const tempRoots: string[] = [];
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -342,6 +344,151 @@ describe("OpenBrain local storage", () => {
     expect(results[0].excerpt).toContain("Copilot");
   });
 
+  test("renders metadata frontmatter and returns indexed metadata", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const added = await addMemory(
+      {
+        type: "episode",
+        text: "Build handoff found flaky deploy validation.",
+        metadata: {
+          source: "user",
+          scope: "handoff",
+          confidence: "high",
+          sensitivity: "private",
+          promoteAs: "workflow"
+        }
+      },
+      options(home)
+    );
+
+    const raw = await readFile(added.path, "utf8");
+    expect(raw).toContain("source: user");
+    expect(raw).toContain("scope: handoff");
+    expect(raw).toContain("confidence: high");
+    expect(raw).toContain("sensitivity: private");
+    expect(raw).toContain("promoteAs: workflow");
+    expect(raw).toContain("expiresAt: 2026-07-04T09:30:00.000Z");
+
+    const results = await searchMemories("flaky deploy", { ...options(home), includePrivate: true });
+    expect(results[0]).toMatchObject({
+      id: added.id,
+      source: "user",
+      scope: "handoff",
+      confidence: "high",
+      sensitivity: "private",
+      promoteAs: "workflow"
+    });
+  });
+
+  test("filters search by metadata and hides expired and private records by default", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    await addMemory(
+      {
+        type: "workflow",
+        text: "Deploy memory for durable workflow search.",
+        metadata: { scope: "release", confidence: "high" }
+      },
+      options(home)
+    );
+    await addMemory(
+      {
+        type: "episode",
+        text: "Deploy memory for temporary episode search.",
+        metadata: { expiresAt: "2026-01-01T00:00:00.000Z" }
+      },
+      options(home)
+    );
+    await addMemory(
+      {
+        type: "decision",
+        text: "Deploy memory for private decision search.",
+        metadata: { sensitivity: "private" }
+      },
+      options(home)
+    );
+
+    expect((await searchMemories("deploy memory", options(home))).map((result) => result.type)).toEqual([
+      "workflow"
+    ]);
+    expect(
+      (await searchMemories("deploy memory", { ...options(home), scope: "release", confidence: "high" }))[0]
+        ?.type
+    ).toBe("workflow");
+    expect(
+      await searchMemories("deploy memory", {
+        ...options(home),
+        type: "decision",
+        includePrivate: true
+      })
+    ).toHaveLength(1);
+    expect(await searchMemories("deploy memory", { ...options(home), durableOnly: true })).toHaveLength(1);
+  });
+
+  test("does not embed private memories", async () => {
+    const home = await tempHome();
+    let embedCalls = 0;
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        embedCalls += 1;
+        return [1, 0, 0];
+      }
+    };
+    await initOpenBrain(options(home, embedder));
+
+    await addMemory(
+      {
+        type: "workflow",
+        text: "Private workflow memory should stay local only.",
+        metadata: { sensitivity: "private" }
+      },
+      options(home, embedder)
+    );
+    expect(embedCalls).toBe(0);
+
+    await addMemory(
+      {
+        type: "workflow",
+        text: "Standard workflow memory can be embedded."
+      },
+      options(home, embedder)
+    );
+    expect(embedCalls).toBe(1);
+  });
+
+  test("promotes an episode into durable memory without deleting the source episode", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const episode = await addMemory(
+      {
+        type: "episode",
+        text: "Review handoff says deployment comments should be handled first.",
+        metadata: { source: "user", sensitivity: "private", promoteAs: "workflow" }
+      },
+      options(home)
+    );
+
+    const promoted = await promoteMemory(
+      {
+        episodeId: episode.id,
+        type: "workflow",
+        text: "Handle deployment review comments before asking to merge."
+      },
+      options(home)
+    );
+
+    expect(promoted.type).toBe("workflow");
+    expect(promoted.metadata).toMatchObject({
+      source: "user",
+      promotedFrom: episode.id,
+      sensitivity: "private"
+    });
+    await expect(showMemory(episode.id, options(home))).resolves.toContain("Review handoff");
+    await expect(showMemory(promoted.id, options(home))).resolves.toContain(`promotedFrom: ${episode.id}`);
+  });
+
   test("uses vector results when query wording differs from memory wording", async () => {
     const home = await tempHome();
     const embedder: EmbeddingProvider = {
@@ -465,6 +612,40 @@ describe("OpenBrain local storage", () => {
     expect(await searchMemories("canonical memory", options(home))).toHaveLength(0);
   });
 
+  test("legacy project memories rebuild from Markdown but are not writable memory types", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const legacyPath = path.join(home, "brains", "main", "memories", "2026-01-01-legacy-project.md");
+    await writeFile(
+      legacyPath,
+      [
+        "---",
+        "id: 2026-01-01-legacy-project",
+        "type: project",
+        "title: Legacy project convention",
+        "createdAt: 2026-01-01T00:00:00.000Z",
+        "---",
+        "",
+        "Legacy project memory remains searchable after rebuild.",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    await rebuildIndex(options(home));
+
+    const results = await searchMemories("legacy project", options(home));
+    expect(results[0]).toMatchObject({
+      id: "2026-01-01-legacy-project",
+      type: "project",
+      source: "agent",
+      scope: "brain",
+      confidence: "medium"
+    });
+    expect(isStoredMemoryType("project")).toBe(true);
+    expect(isMemoryType("project")).toBe(false);
+  });
+
   test("rebuild embeds each memory exactly once with a shared embedder", async () => {
     const home = await tempHome();
     let embedCalls = 0;
@@ -525,8 +706,32 @@ describe("OpenBrain local storage", () => {
       "\"lastDreamDate\": \"2026-06-04\""
     );
     await expect(readFile(result.logPath, "utf8")).resolves.toContain("Dream run");
+    expect(result.promotionCandidatesPath).toBeTruthy();
+    await expect(readFile(result.promotionCandidatesPath!, "utf8")).resolves.toContain("No promotion candidates.");
     await expect(readFile(oldEpisode, "utf8")).rejects.toThrow();
     expect((await searchMemories("inventing facts", options(home)))[0]?.id).toBe(added.id);
+  });
+
+  test("dream writes promotion candidates without creating durable memories", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const episode = await addMemory(
+      {
+        type: "episode",
+        text: "Session found that staging deploy review comments need handling before merge.",
+        metadata: { promoteAs: "workflow" }
+      },
+      options(home)
+    );
+
+    const result = await dreamRun(options(home));
+
+    expect(result.promotionCandidatesPath).toBeTruthy();
+    const candidates = await readFile(result.promotionCandidatesPath!, "utf8");
+    expect(candidates).toContain(episode.id);
+    expect(candidates).toContain("suggestedType: workflow");
+    expect(candidates).toContain(`openbrain memory promote ${episode.id} --type workflow --text "<final durable memory>"`);
+    expect(await searchMemories("staging deploy review", { ...options(home), durableOnly: true })).toHaveLength(0);
   });
 
   test("dream maybe runs only once per brain each day", async () => {
@@ -549,7 +754,8 @@ describe("OpenBrain local storage", () => {
     });
     expect(nextDay.status).toBe("ran");
     const dreamFiles = await readdir(path.join(home, "brains", "main", "dreams"));
-    expect(dreamFiles.filter((file) => file.endsWith(".md"))).toHaveLength(2);
+    expect(dreamFiles.filter((file) => file.endsWith("-dream.md"))).toHaveLength(2);
+    expect(dreamFiles.filter((file) => file.includes("promotion-candidates"))).toHaveLength(2);
   });
 });
 

@@ -10,13 +10,26 @@ import {
   initOpenBrain,
   listMemories,
   pruneEpisodes,
+  promoteMemory,
   rebuildIndex,
   searchMemories,
   showMemory,
   setupOpenBrain,
   syncCodexAgent
 } from "./openbrain.js";
-import type { MemoryType, SearchResult, SetupInput, SetupPathRuleInput } from "./types.js";
+import {
+  isDurableMemoryType,
+  isMemoryType,
+  isStoredMemoryType,
+  type DurableMemoryType,
+  type MemoryConfidence,
+  type MemorySensitivity,
+  type MemoryType,
+  type SearchResult,
+  type SetupInput,
+  type SetupPathRuleInput,
+  type StoredMemoryType
+} from "./types.js";
 
 async function main(argv: string[]) {
   const [area, command, ...rest] = argv;
@@ -189,23 +202,53 @@ async function memoryCommand(command: string | undefined, args: string[]) {
   if (command === "add") {
     const type = readOption(args, "--type") as MemoryType | undefined;
     const text = readOption(args, "--text");
-    if (!type || !["preference", "workflow", "workspace", "decision", "episode"].includes(type)) {
+    if (!isMemoryType(type)) {
       throw new Error("memory add requires --type preference|workflow|workspace|decision|episode");
     }
     if (!text) {
       throw new Error("memory add requires --text");
     }
-    const result = await addMemory({ type, text });
+    const result = await addMemory({
+      type,
+      text,
+      metadata: {
+        source: readOption(args, "--source"),
+        scope: readOption(args, "--scope"),
+        confidence: parseConfidence(readOption(args, "--confidence")),
+        expiresAt: readOption(args, "--expires-at"),
+        sensitivity: parseSensitivity(readOption(args, "--sensitivity")),
+        promotedFrom: readOption(args, "--promoted-from"),
+        promoteAs: parseDurableType(readOption(args, "--promote-as"))
+      }
+    });
+    console.log(`${result.id}\t${result.path}`);
+    return;
+  }
+
+  if (command === "promote") {
+    const episodeId = args[0];
+    const type = parseDurableType(readOption(args, "--type"));
+    const text = readOption(args, "--text");
+    if (!episodeId) {
+      throw new Error("memory promote requires an episode id");
+    }
+    if (!type) {
+      throw new Error("memory promote requires --type preference|workflow|workspace|decision");
+    }
+    if (!text) {
+      throw new Error("memory promote requires --text");
+    }
+    const result = await promoteMemory({ episodeId, type, text });
     console.log(`${result.id}\t${result.path}`);
     return;
   }
 
   if (command === "search") {
-    const query = args.join(" ").trim();
+    const { query, options } = parseSearchArgs(args);
     if (!query) {
       throw new Error("memory search requires a query");
     }
-    printSearchResults(await searchMemories(query));
+    printSearchResults(await searchMemories(query, options));
     return;
   }
 
@@ -279,6 +322,81 @@ function parseYesNo(value: string, optionName: string) {
   throw new Error(`${optionName} must be yes or no`);
 }
 
+function parseSearchArgs(args: string[]) {
+  const queryTokens: string[] = [];
+  const options: {
+    type?: StoredMemoryType;
+    scope?: string;
+    confidence?: MemoryConfidence;
+    durableOnly?: boolean;
+    includePrivate?: boolean;
+  } = {};
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === "--durable-only") {
+      options.durableOnly = true;
+      continue;
+    }
+    if (arg === "--include-private") {
+      options.includePrivate = true;
+      continue;
+    }
+    if (arg === "--type") {
+      options.type = parseStoredType(args[++index]);
+      continue;
+    }
+    if (arg === "--scope") {
+      options.scope = args[++index];
+      continue;
+    }
+    if (arg === "--confidence") {
+      options.confidence = parseConfidence(args[++index]);
+      continue;
+    }
+    queryTokens.push(arg);
+  }
+
+  return { query: queryTokens.join(" ").trim(), options };
+}
+
+function parseStoredType(value: string | undefined): StoredMemoryType | undefined {
+  if (isStoredMemoryType(value)) {
+    return value;
+  }
+  throw new Error("--type must be preference|workflow|workspace|decision|episode|project");
+}
+
+function parseDurableType(value: string | undefined): DurableMemoryType | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (isDurableMemoryType(value)) {
+    return value;
+  }
+  throw new Error("durable memory type must be preference|workflow|workspace|decision");
+}
+
+function parseConfidence(value: string | undefined): MemoryConfidence | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "low" || value === "medium" || value === "high") {
+    return value;
+  }
+  throw new Error("--confidence must be low|medium|high");
+}
+
+function parseSensitivity(value: string | undefined): MemorySensitivity | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "standard" || value === "private") {
+    return value;
+  }
+  throw new Error("--sensitivity must be standard|private");
+}
+
 function printSearchResults(results: SearchResult[]) {
   if (!results.length) {
     console.log("No memories found.");
@@ -287,7 +405,20 @@ function printSearchResults(results: SearchResult[]) {
 
   for (const result of results) {
     console.log(`[${result.id}] ${result.title}`);
-    console.log(`type=${result.type} match=${result.match} score=${result.score.toFixed(3)}`);
+    console.log(
+      `type=${result.type} scope=${result.scope} confidence=${result.confidence} sensitivity=${result.sensitivity} match=${result.match} score=${result.score.toFixed(3)}`
+    );
+    if (result.expiresAt || result.promotedFrom || result.promoteAs) {
+      console.log(
+        [
+          result.expiresAt ? `expiresAt=${result.expiresAt}` : undefined,
+          result.promotedFrom ? `promotedFrom=${result.promotedFrom}` : undefined,
+          result.promoteAs ? `promoteAs=${result.promoteAs}` : undefined
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+    }
     console.log(`path=${result.path}`);
     console.log(result.excerpt);
     console.log("");
@@ -297,6 +428,9 @@ function printSearchResults(results: SearchResult[]) {
 function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
   if (result.status === "ran") {
     console.log(`Dream ran for brain ${result.brain}: ${result.logPath}`);
+    if (result.promotionCandidatesPath) {
+      console.log(`Promotion candidates: ${result.promotionCandidatesPath}`);
+    }
     console.log(`Pruned ${result.prunedEpisodes} episode file${result.prunedEpisodes === 1 ? "" : "s"}.`);
     return;
   }
@@ -311,8 +445,9 @@ function usage() {
   openbrain agents sync codex
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]
-  openbrain memory add --type <type> --text <text>
-  openbrain memory search <query>
+  openbrain memory add --type <type> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--promoted-from <id>] [--promote-as <type>]
+  openbrain memory promote <episode-id> --type <type> --text <text>
+  openbrain memory search <query> [--type <type>] [--scope <value>] [--confidence low|medium|high] [--durable-only] [--include-private]
   openbrain memory list
   openbrain memory show <id>
   openbrain memory delete <id>
