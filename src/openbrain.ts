@@ -155,29 +155,32 @@ export async function addMemory(
 export async function promoteMemory(input: PromoteMemoryInput, options: OpenBrainOptions = {}) {
   const { options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
+  let episode: IndexedMemoryRow;
   try {
-    const episode = getMemoryRow(db, input.episodeId);
-    if (!episode) {
+    const row = getMemoryRow(db, input.episodeId);
+    if (!row) {
       throw new Error(`Memory not found: ${input.episodeId}`);
     }
-    if (episode.type !== "episode") {
+    if (row.type !== "episode") {
       throw new Error(`Memory is not an episode: ${input.episodeId}`);
     }
-    return addMemory(
-      {
-        type: input.type,
-        text: input.text,
-        metadata: {
-          source: episode.source,
-          promotedFrom: episode.id,
-          sensitivity: episode.sensitivity === "private" ? "private" : "standard"
-        }
-      },
-      scopedOptions
-    );
+    episode = row;
   } finally {
     db.close();
   }
+
+  return addMemory(
+    {
+      type: input.type,
+      text: input.text,
+      metadata: {
+        source: episode.source,
+        promotedFrom: episode.id,
+        sensitivity: episode.sensitivity === "private" ? "private" : "standard"
+      }
+    },
+    scopedOptions
+  );
 }
 
 export async function searchMemories(query: string, options: SearchMemoriesOptions = {}) {
@@ -185,7 +188,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
   const db = await openDatabase(scopedOptions);
   try {
     const limit = config.retrieval.limit;
-    const searchLimit = Math.max(limit * 20, limit);
+    const searchLimit = limit * 20;
     const now = options.now?.() ?? new Date();
 
     // Reciprocal Rank Fusion combines the FTS and vector result lists by their
@@ -265,7 +268,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
         expiresAt: row.expires_at ?? undefined,
         promotedFrom: row.promoted_from ?? undefined,
         sensitivity: row.sensitivity as SearchResult["sensitivity"],
-        promoteAs: row.promote_as as SearchResult["promoteAs"],
+        promoteAs: (row.promote_as ?? undefined) as SearchResult["promoteAs"],
         score,
         excerpt: excerpt(row.body, query),
         match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")

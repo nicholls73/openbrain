@@ -91,7 +91,7 @@ export async function parseMemoryFile(filePath: string, retentionDays = 30): Pro
       source: meta.source,
       scope: meta.scope,
       confidence: parseConfidence(meta.confidence),
-      expiresAt: meta.expiresAt,
+      expiresAt: parseExpiresAt(meta.expiresAt, filePath),
       promotedFrom: meta.promotedFrom,
       sensitivity: parseSensitivity(meta.sensitivity),
       promoteAs: parseDurableType(meta.promoteAs)
@@ -113,7 +113,12 @@ export function memoryMetadataDefaults(
     sensitivity: input.sensitivity ?? "standard"
   };
 
-  const expiresAt = input.expiresAt?.trim() || (isEpisode ? defaultEpisodeExpiry(createdAt, retentionDays) : undefined);
+  if (input.promoteAs && !isEpisode) {
+    console.warn(`openbrain: ignored promoteAs on non-episode memory type ${type}`);
+  }
+
+  const explicitExpiresAt = normalizeExpiresAt(input.expiresAt);
+  const expiresAt = explicitExpiresAt || (isEpisode ? defaultEpisodeExpiry(createdAt, retentionDays) : undefined);
   if (expiresAt) {
     metadata.expiresAt = expiresAt;
   }
@@ -145,22 +150,57 @@ function required(meta: Record<string, string>, key: string, filePath: string) {
 }
 
 function parseConfidence(value: string | undefined): MemoryConfidence | undefined {
-  return value === "low" || value === "medium" || value === "high" ? value : undefined;
+  if (!value) {
+    return undefined;
+  }
+  if (value === "low" || value === "medium" || value === "high") {
+    return value;
+  }
+  console.warn(`openbrain: ignored invalid confidence metadata: ${value}`);
+  return undefined;
 }
 
 function parseSensitivity(value: string | undefined): MemorySensitivity | undefined {
-  return value === "standard" || value === "private" ? value : undefined;
+  if (!value) {
+    return undefined;
+  }
+  if (value === "standard" || value === "private") {
+    return value;
+  }
+  console.warn(`openbrain: ignored invalid sensitivity metadata: ${value}`);
+  return undefined;
 }
 
 function parseDurableType(value: string | undefined): DurableMemoryType | undefined {
-  return value === "preference" || value === "workflow" || value === "workspace" || value === "decision"
-    ? value
-    : undefined;
+  if (!value) {
+    return undefined;
+  }
+  if (value === "preference" || value === "workflow" || value === "workspace" || value === "decision") {
+    return value;
+  }
+  console.warn(`openbrain: ignored invalid promoteAs metadata: ${value}`);
+  return undefined;
+}
+
+function parseExpiresAt(value: string | undefined, filePath: string) {
+  return normalizeExpiresAt(value, ` in ${filePath}`);
+}
+
+function normalizeExpiresAt(value: string | undefined, context = "") {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (!Number.isNaN(new Date(trimmed).getTime())) {
+    return trimmed;
+  }
+  console.warn(`openbrain: ignored invalid expiresAt metadata${context}: ${trimmed}`);
+  return undefined;
 }
 
 function defaultEpisodeExpiry(createdAt: string, retentionDays: number) {
   const value = new Date(createdAt);
-  if (Number.isNaN(value.getTime())) {
+  if (Number.isNaN(value.getTime()) || value.getTime() === 0) {
     return undefined;
   }
   value.setUTCDate(value.getUTCDate() + retentionDays);

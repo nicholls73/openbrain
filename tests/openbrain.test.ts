@@ -427,6 +427,85 @@ describe("OpenBrain local storage", () => {
     expect(await searchMemories("deploy memory", { ...options(home), durableOnly: true })).toHaveLength(1);
   });
 
+  test("keeps frontmatter-less episodes searchable until filename-based pruning removes them", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const rawEpisode = path.join(home, "brains", "main", "episodes", "2026-06-04-raw-note.md");
+    await writeFile(rawEpisode, "Raw session note mentions deployment callbacks.", "utf8");
+
+    await rebuildIndex(options(home));
+
+    const results = await searchMemories("deployment callbacks", options(home));
+    expect(results[0]).toMatchObject({
+      id: "2026-06-04-raw-note",
+      type: "episode",
+      expiresAt: undefined
+    });
+  });
+
+  test("warns and defaults invalid metadata instead of silently dropping it", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const invalid = path.join(home, "brains", "main", "episodes", "2026-06-04-invalid.md");
+      await writeFile(
+        invalid,
+        [
+          "---",
+          "id: 2026-06-04-invalid",
+          "type: episode",
+          "title: Invalid metadata",
+          "createdAt: 2026-06-04T09:30:00.000Z",
+          "confidence: certain",
+          "sensitivity: secret",
+          "expiresAt: tomorrow",
+          "promoteAs: habit",
+          "---",
+          "",
+          "Invalid metadata still indexes with defaults.",
+          ""
+        ].join("\n"),
+        "utf8"
+      );
+
+      await rebuildIndex(options(home));
+
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid confidence");
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid sensitivity");
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid expiresAt");
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid promoteAs");
+      expect((await searchMemories("invalid metadata", options(home)))[0]).toMatchObject({
+        confidence: "low",
+        sensitivity: "standard",
+        promoteAs: undefined
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("warns when promoteAs is ignored for durable memories", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const added = await addMemory(
+        {
+          type: "workflow",
+          text: "Durable workflows cannot be promotion candidates.",
+          metadata: { promoteAs: "decision" }
+        },
+        options(home)
+      );
+
+      expect(String(warn.mock.calls[0]?.[0])).toContain("ignored promoteAs");
+      await expect(readFile(added.path, "utf8")).resolves.not.toContain("promoteAs:");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test("does not embed private memories", async () => {
     const home = await tempHome();
     let embedCalls = 0;
