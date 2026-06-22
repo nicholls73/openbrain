@@ -13,6 +13,13 @@ export interface IndexedMemoryRow {
   path: string;
   created_at: string;
   body: string;
+  source: string;
+  scope: string;
+  confidence: string;
+  expires_at: string | null;
+  promoted_from: string | null;
+  sensitivity: string;
+  promote_as: string | null;
   embedding: string | null;
 }
 
@@ -34,6 +41,13 @@ export async function openDatabase(options: OpenBrainOptions = {}) {
       path TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL,
       body TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'agent',
+      scope TEXT NOT NULL DEFAULT 'brain',
+      confidence TEXT NOT NULL DEFAULT 'medium',
+      expires_at TEXT,
+      promoted_from TEXT,
+      sensitivity TEXT NOT NULL DEFAULT 'standard',
+      promote_as TEXT,
       embedding TEXT,
       updated_at TEXT NOT NULL
     );
@@ -45,6 +59,7 @@ export async function openDatabase(options: OpenBrainOptions = {}) {
       body
     );
   `);
+  ensureMemoryColumns(db);
   return db;
 }
 
@@ -52,14 +67,24 @@ export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding
   const now = new Date().toISOString();
   db.prepare(
     `
-    INSERT INTO memories (id, type, title, path, created_at, body, embedding, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO memories (
+      id, type, title, path, created_at, body, source, scope, confidence,
+      expires_at, promoted_from, sensitivity, promote_as, embedding, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       type = excluded.type,
       title = excluded.title,
       path = excluded.path,
       created_at = excluded.created_at,
       body = excluded.body,
+      source = excluded.source,
+      scope = excluded.scope,
+      confidence = excluded.confidence,
+      expires_at = excluded.expires_at,
+      promoted_from = excluded.promoted_from,
+      sensitivity = excluded.sensitivity,
+      promote_as = excluded.promote_as,
       embedding = excluded.embedding,
       updated_at = excluded.updated_at
   `
@@ -70,6 +95,13 @@ export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding
     record.path,
     record.createdAt,
     record.body,
+    record.metadata.source,
+    record.metadata.scope,
+    record.metadata.confidence,
+    record.metadata.expiresAt ?? null,
+    record.metadata.promotedFrom ?? null,
+    record.metadata.sensitivity,
+    record.metadata.promoteAs ?? null,
     embedding ? JSON.stringify(embedding) : null,
     now
   );
@@ -80,6 +112,26 @@ export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding
     record.title,
     record.body
   );
+}
+
+function ensureMemoryColumns(db: SqliteDatabase) {
+  const columns = new Set(
+    (db.prepare("PRAGMA table_info(memories)").all() as Array<{ name: string }>).map((column) => column.name)
+  );
+  const additions: Array<[string, string]> = [
+    ["source", "TEXT NOT NULL DEFAULT 'agent'"],
+    ["scope", "TEXT NOT NULL DEFAULT 'brain'"],
+    ["confidence", "TEXT NOT NULL DEFAULT 'medium'"],
+    ["expires_at", "TEXT"],
+    ["promoted_from", "TEXT"],
+    ["sensitivity", "TEXT NOT NULL DEFAULT 'standard'"],
+    ["promote_as", "TEXT"]
+  ];
+  for (const [name, definition] of additions) {
+    if (!columns.has(name)) {
+      db.exec(`ALTER TABLE memories ADD COLUMN ${name} ${definition}`);
+    }
+  }
 }
 
 export function clearIndex(db: SqliteDatabase) {

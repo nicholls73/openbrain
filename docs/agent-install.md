@@ -71,7 +71,7 @@ Confirm that each workspace path resolves to the expected active brain.
 
 OpenBrain currently ships a Codex adapter. `openbrain setup --codex yes` writes it.
 
-The Codex adapter will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today.
+The Codex adapter will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today. Dreaming prunes expired episodes, rebuilds the index from Markdown, and writes promotion candidate review files. It does not create durable memories automatically.
 
 ## Finish
 
@@ -81,6 +81,7 @@ Tell the user:
 - Which brain setup was chosen.
 - Which files were changed.
 - That agents should now use OpenBrain automatically through their instructions, including once-daily dreaming.
+- That short-lived episodes are evidence, durable memories are conclusions, and reviewed episodes can be promoted with `openbrain memory promote`.
 - The inspection commands they can run if they want to check state:
 
 ```bash

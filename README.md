@@ -27,7 +27,7 @@ Full privilege mode means the agent can read and write local files and run shell
 | `~/.openbrain/config.json` | Brain routing, retention, agent, and retrieval settings. |
 | `~/.openbrain/brains/<name>/memories/` | Durable Markdown memories. |
 | `~/.openbrain/brains/<name>/episodes/` | Short-lived Markdown session notes. |
-| `~/.openbrain/brains/<name>/dreams/` | Daily maintenance state and audit logs. |
+| `~/.openbrain/brains/<name>/dreams/` | Daily maintenance state, audit logs, and promotion candidates. |
 | `~/.openbrain/brains/<name>/openbrain.db` | Rebuildable SQLite FTS/vector index. |
 | `~/.openbrain/models/` | Local embedding model cache. |
 
@@ -41,6 +41,7 @@ Full privilege mode means the agent can read and write local files and run shell
 - Brain routing can keep different contexts separate by filesystem path.
 - Agents quietly trigger `openbrain dream maybe --quiet` so each brain can run maintenance once per day.
 - The current adapter syncs a marked OpenBrain block into `~/.codex/AGENTS.md`.
+- Episodes can be marked as promotion candidates; `dream` writes review files but does not create durable memory automatically.
 
 ## Install Manually
 
@@ -96,7 +97,17 @@ Good durable memories include:
 - Stable workspace or toolchain conventions.
 - Durable decisions and the reason behind them.
 
-Use `episode` for short-lived handoff context or fast-changing facts. Avoid turning branch names, PR numbers, commit IDs, stale local state, exact files touched, copied fixture values, prior implementation shape, or one-off debugging details into durable memories.
+Use `episode` for short-lived handoff context or fast-changing facts. Episodes are evidence; durable memories are conclusions. Avoid turning branch names, PR numbers, commit IDs, stale local state, exact files touched, copied fixture values, prior implementation shape, or one-off debugging details into durable memories.
+
+Each memory can carry metadata in Markdown frontmatter:
+
+- `source`: where the memory came from, default `agent`.
+- `scope`: retrieval scope, default `brain` for durable memory and `session` for episodes.
+- `confidence`: `low`, `medium`, or `high`.
+- `expiresAt`: ISO timestamp; expired memories are skipped by default.
+- `sensitivity`: `standard` or `private`; private memories require `--include-private` and are not embedded.
+- `promotedFrom`: source episode id for reviewed durable memories.
+- `promoteAs`: suggested durable type for an episode promotion candidate.
 
 For POC or reference work, agents should classify each piece before remembering it:
 
@@ -115,6 +126,9 @@ openbrain brain current
 openbrain memory list
 openbrain memory show <id>
 openbrain memory delete <id>
+openbrain memory search "deploy workflow" --durable-only --type workflow
+openbrain memory add --type episode --promote-as workflow --text "..."
+openbrain memory promote <episode-id> --type workflow --text "..."
 openbrain dream run
 openbrain index rebuild
 openbrain prune
@@ -207,4 +221,4 @@ Set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
 
 The first semantic search can be slower because the local embedding model has to load and may need to download into the OpenBrain model cache. Search falls back to SQLite FTS when embeddings are unavailable.
 
-Dreaming is maintenance-only for now. It prunes expired episodes, rebuilds the retrieval index from Markdown, and writes an audit log. It does not invent memories.
+Dreaming is maintenance-only for now. It prunes expired episodes, rebuilds the retrieval index from Markdown, writes promotion candidate review files, and writes an audit log. It does not invent memories or promote episodes automatically.
