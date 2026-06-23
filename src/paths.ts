@@ -18,6 +18,10 @@ export function codexHome(options: OpenBrainOptions = {}) {
   return options.codexHome ?? process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
 }
 
+export function claudeHome(options: OpenBrainOptions = {}) {
+  return options.claudeHome ?? process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
+}
+
 export function configPath(options: OpenBrainOptions = {}) {
   return path.join(openBrainHome(options), "config.json");
 }

@@ -40,7 +40,7 @@ Full privilege mode means the agent can read and write local files and run shell
 - Memories stay readable as Markdown.
 - Brain routing can keep different contexts separate by filesystem path.
 - Agents quietly trigger `openbrain dream maybe --quiet` so each brain can run maintenance once per day.
-- The current adapter syncs a marked OpenBrain block into `~/.codex/AGENTS.md`.
+- The current adapters sync a marked OpenBrain block into `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`.
 - Episodes can be marked as promotion candidates; `dream` writes review files but does not create durable memory automatically.
 
 ## Install Manually
@@ -76,6 +76,13 @@ If you already know the choices, setup can be non-interactive:
 ```bash
 openbrain setup --brain-scope default --codex yes
 openbrain setup --brain-scope paths --path-rule brain-a=/Users/you/path-a --codex yes
+openbrain setup --brain-scope default --codex yes --claude yes
+```
+
+To add Claude Code after an existing setup:
+
+```bash
+openbrain agents sync claude
 ```
 
 After this, configured agents know when to search and write memories.
@@ -173,6 +180,9 @@ Example `~/.openbrain/config.json`:
   },
   "agents": {
     "codex": {
+      "enabled": true
+    },
+    "claude": {
       "enabled": true
     }
   }

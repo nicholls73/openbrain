@@ -38,6 +38,9 @@ export interface OpenBrainConfig {
     codex: {
       enabled: boolean;
     };
+    claude: {
+      enabled: boolean;
+    };
   };
 }
 
@@ -48,6 +51,7 @@ export interface EmbeddingProvider {
 export interface OpenBrainOptions {
   home?: string;
   codexHome?: string;
+  claudeHome?: string;
   brain?: string;
   cwd?: string;
   now?: () => Date;
@@ -63,6 +67,7 @@ export interface SetupInput {
   brainScope: "default" | "paths";
   pathRules?: SetupPathRuleInput[];
   syncCodex: boolean;
+  syncClaude?: boolean;
 }
 
 export interface SetupResult {
@@ -70,6 +75,7 @@ export interface SetupResult {
   currentBrain: string;
   pathRules: SetupPathRuleInput[];
   codexAgentFile?: string;
+  claudeAgentFile?: string;
 }
 
 export interface AddMemoryInput {

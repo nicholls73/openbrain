@@ -15,6 +15,7 @@ import {
   searchMemories,
   showMemory,
   setupOpenBrain,
+  syncClaudeAgent,
   syncCodexAgent
 } from "./openbrain.js";
 import {
@@ -47,12 +48,17 @@ async function main(argv: string[]) {
 
   if (area === "agents" && command === "sync") {
     const agent = rest[0];
-    if (agent !== "codex") {
-      throw new Error("Only Codex agent sync is supported in v1.");
+    if (agent === "codex") {
+      const file = await syncCodexAgent();
+      console.log(`Synced Codex adapter: ${file}`);
+      return;
     }
-    const file = await syncCodexAgent();
-    console.log(`Synced Codex adapter: ${file}`);
-    return;
+    if (agent === "claude") {
+      const file = await syncClaudeAgent();
+      console.log(`Synced Claude adapter: ${file}`);
+      return;
+    }
+    throw new Error("Supported agent sync targets: codex, claude.");
   }
 
   if (area === "memory") {
@@ -128,11 +134,13 @@ async function setupCommand(args: string[]) {
     console.log(`Path rule: ${rule.brain}\t${rule.path}`);
   }
   console.log(`Codex: ${result.codexAgentFile ? result.codexAgentFile : "not synced"}`);
+  console.log(`Claude: ${result.claudeAgentFile ? result.claudeAgentFile : "not synced"}`);
 }
 
 async function readSetupInput(args: string[]): Promise<SetupInput> {
   const brainScope = readOption(args, "--brain-scope") as SetupInput["brainScope"] | undefined;
   const codex = readOption(args, "--codex");
+  const claude = readOption(args, "--claude");
   const pathRules = readOptions(args, "--path-rule").map(parsePathRule);
 
   if (brainScope && !["default", "paths"].includes(brainScope)) {
@@ -143,13 +151,14 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
     return {
       brainScope,
       pathRules,
-      syncCodex: parseYesNo(codex, "--codex")
+      syncCodex: parseYesNo(codex, "--codex"),
+      syncClaude: claude ? parseYesNo(claude, "--claude") : false
     };
   }
 
   if (!process.stdin.isTTY) {
     throw new Error(
-      "setup needs answers. Run interactively, or pass --brain-scope default|paths and --codex yes|no."
+      "setup needs answers. Run interactively, or pass --brain-scope default|paths, --codex yes|no, and optionally --claude yes|no."
     );
   }
 
@@ -162,11 +171,15 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
     const resolvedPathRules =
       resolvedScope === "paths" && pathRules.length === 0 ? await askPathRules(prompt) : pathRules;
     const resolvedCodex = codex ? parseYesNo(codex, "--codex") : await askYesNo(prompt, "Sync Codex? [Y/n] ");
+    const resolvedClaude = claude
+      ? parseYesNo(claude, "--claude")
+      : await askYesNo(prompt, "Sync Claude Code? [y/N] ", false);
 
     return {
       brainScope: resolvedScope,
       pathRules: resolvedPathRules,
-      syncCodex: resolvedCodex
+      syncCodex: resolvedCodex,
+      syncClaude: resolvedClaude
     };
   } finally {
     prompt.close();
@@ -193,9 +206,12 @@ async function askPathRules(prompt: ReturnType<typeof createInterface>) {
   return rules;
 }
 
-async function askYesNo(prompt: ReturnType<typeof createInterface>, question: string) {
+async function askYesNo(prompt: ReturnType<typeof createInterface>, question: string, defaultValue = true) {
   const answer = (await prompt.question(question)).trim().toLowerCase();
-  return answer === "" || answer === "y" || answer === "yes";
+  if (answer === "") {
+    return defaultValue;
+  }
+  return answer === "y" || answer === "yes";
 }
 
 async function memoryCommand(command: string | undefined, args: string[]) {
@@ -441,8 +457,8 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
 function usage() {
   console.log(`Usage:
   openbrain init
-  openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no]
-  openbrain agents sync codex
+  openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no]
+  openbrain agents sync codex|claude
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]
   openbrain memory add --type <type> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--promoted-from <id>] [--promote-as <type>]

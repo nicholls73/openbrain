@@ -23,6 +23,9 @@ export const DEFAULT_CONFIG: OpenBrainConfig = {
   agents: {
     codex: {
       enabled: true
+    },
+    claude: {
+      enabled: true
     }
   }
 };
@@ -77,6 +80,10 @@ function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
       codex: {
         ...defaults.agents.codex,
         ...raw.agents?.codex
+      },
+      claude: {
+        ...defaults.agents.claude,
+        ...raw.agents?.claude
       }
     }
   };
@@ -98,6 +105,9 @@ function defaultConfig(): OpenBrainConfig {
     agents: {
       codex: {
         ...DEFAULT_CONFIG.agents.codex
+      },
+      claude: {
+        ...DEFAULT_CONFIG.agents.claude
       }
     }
   };

@@ -38,18 +38,18 @@ Ask this first:
 If the user chooses one brain, run:
 
 ```bash
-openbrain setup --brain-scope default --codex yes
+openbrain setup --brain-scope default --codex yes --claude yes
 ```
 
 If the user chooses separate memory containers, ask for brain/path pairs. Do not suggest container names. Paths only choose the active brain; the brain is the memory container. Then run:
 
 ```bash
-openbrain setup --brain-scope paths --path-rule <brain>=<path> --codex yes
+openbrain setup --brain-scope paths --path-rule <brain>=<path> --codex yes --claude yes
 ```
 
 Repeat `--path-rule <brain>=<path>` for each pair the user gives you.
 
-If the user does not want Codex integration, use `--codex no`.
+If the user does not want Codex integration, use `--codex no`. If the user does not want Claude Code integration, use `--claude no`.
 
 If you cannot collect choices through chat or native question UI, run interactive setup:
 
@@ -69,9 +69,9 @@ Confirm that each workspace path resolves to the expected active brain.
 
 ## Agent Setup
 
-OpenBrain currently ships a Codex adapter. `openbrain setup --codex yes` writes it.
+OpenBrain currently ships Codex and Claude Code adapters. `openbrain setup --codex yes --claude yes` writes them.
 
-The Codex adapter will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today. Dreaming prunes expired episodes, rebuilds the index from Markdown, and writes promotion candidate review files. It does not create durable memories automatically.
+The adapters will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today. Dreaming prunes expired episodes, rebuilds the index from Markdown, and writes promotion candidate review files. It does not create durable memories automatically.
 
 ## Finish
 

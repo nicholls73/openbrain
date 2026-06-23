@@ -20,6 +20,7 @@ import {
   searchMemories,
   showMemory,
   setupOpenBrain,
+  syncClaudeAgent,
   syncCodexAgent
 } from "../src/openbrain.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
@@ -249,18 +250,21 @@ describe("OpenBrain local storage", () => {
     });
     expect(config.retrieval.limit).toBe(5);
     expect(config.agents.codex.enabled).toBe(true);
+    expect(config.agents.claude.enabled).toBe(true);
   });
 
-  test("guided setup can keep one default brain and sync Codex instructions", async () => {
+  test("guided setup can keep one default brain and sync agent instructions", async () => {
     const home = await tempHome();
     const codexHome = path.join(home, ".codex");
+    const claudeHome = path.join(home, ".claude");
 
     const result = await setupOpenBrain(
       {
         brainScope: "default",
-        syncCodex: true
+        syncCodex: true,
+        syncClaude: true
       },
-      { ...options(home), codexHome }
+      { ...options(home), codexHome, claudeHome }
     );
     const config = await loadConfig(options(home));
 
@@ -272,9 +276,13 @@ describe("OpenBrain local storage", () => {
     expect(result).toMatchObject({
       brainScope: "default",
       currentBrain: "main",
-      codexAgentFile: path.join(codexHome, "AGENTS.md")
+      codexAgentFile: path.join(codexHome, "AGENTS.md"),
+      claudeAgentFile: path.join(claudeHome, "CLAUDE.md")
     });
     await expect(readFile(path.join(codexHome, "AGENTS.md"), "utf8")).resolves.toContain(
+      "BEGIN OPENBRAIN"
+    );
+    await expect(readFile(path.join(claudeHome, "CLAUDE.md"), "utf8")).resolves.toContain(
       "BEGIN OPENBRAIN"
     );
   });
@@ -885,6 +893,44 @@ describe("Codex adapter sync", () => {
     );
     await syncCodexAgent({ ...options(home), codexHome });
     const second = await readFile(path.join(codexHome, "AGENTS.md"), "utf8");
+
+    expect(second).toContain("Do not remove this.");
+    expect(second.match(/BEGIN OPENBRAIN/g)).toHaveLength(1);
+  });
+});
+
+describe("Claude adapter sync", () => {
+  test("writes the OpenBrain block into global Claude instructions", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await initOpenBrain(options(home));
+
+    await syncClaudeAgent({ ...options(home), claudeHome });
+    const agentFile = await readFile(path.join(claudeHome, "CLAUDE.md"), "utf8");
+
+    expect(agentFile).toContain("OpenBrain uses the current workspace path only to choose the active brain.");
+    expect(agentFile).toContain("openbrain dream maybe --quiet");
+    expect(agentFile).toContain("openbrain memory search");
+    expect(agentFile.indexOf("openbrain dream maybe --quiet")).toBeLessThan(
+      agentFile.indexOf("openbrain memory search")
+    );
+  });
+
+  test("updates only the marked OpenBrain block", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await initOpenBrain(options(home));
+
+    await syncClaudeAgent({ ...options(home), claudeHome });
+    const first = await readFile(path.join(claudeHome, "CLAUDE.md"), "utf8");
+    await writeFile(
+      path.join(claudeHome, "CLAUDE.md"),
+      `# Existing rules\n\nDo not remove this.\n\n${first}`,
+      "utf8"
+    );
+
+    await syncClaudeAgent({ ...options(home), claudeHome });
+    const second = await readFile(path.join(claudeHome, "CLAUDE.md"), "utf8");
 
     expect(second).toContain("Do not remove this.");
     expect(second.match(/BEGIN OPENBRAIN/g)).toHaveLength(1);

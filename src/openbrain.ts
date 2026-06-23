@@ -14,7 +14,7 @@ import {
 } from "./db.js";
 import type { IndexedMemoryRow } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
-import { brainHome, codexHome, dreamsDir, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
+import { brainHome, claudeHome, codexHome, dreamsDir, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
 import {
   memoryMetadataDefaults,
   parseMemoryFile,
@@ -78,6 +78,7 @@ export async function setupOpenBrain(
   }
 
   const codexAgentFile = input.syncCodex ? await syncCodexAgent(options) : undefined;
+  const claudeAgentFile = input.syncClaude ? await syncClaudeAgent(options) : undefined;
   const currentBrain =
     input.brainScope === "paths"
       ? await getCurrentBrain({ ...options, cwd: pathRules[0]!.path })
@@ -87,7 +88,8 @@ export async function setupOpenBrain(
     brainScope: input.brainScope,
     currentBrain,
     pathRules,
-    codexAgentFile
+    codexAgentFile,
+    claudeAgentFile
   };
 }
 
@@ -393,11 +395,18 @@ export async function dreamRun(options: OpenBrainOptions = {}): Promise<DreamRes
 }
 
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
+  return syncInstructionFile(codexHome(options), "AGENTS.md", options);
+}
+
+export async function syncClaudeAgent(options: OpenBrainOptions = {}) {
+  return syncInstructionFile(claudeHome(options), "CLAUDE.md", options);
+}
+
+async function syncInstructionFile(dir: string, fileName: string, options: OpenBrainOptions = {}) {
   const config = await loadConfig(options);
   await initOpenBrain({ ...options, brain: config.brains.default });
-  const dir = codexHome(options);
   await mkdir(dir, { recursive: true });
-  const file = path.join(dir, "AGENTS.md");
+  const file = path.join(dir, fileName);
   let existing = "";
   try {
     existing = await readFile(file, "utf8");
