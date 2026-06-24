@@ -1,10 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { dbPath } from "./paths.js";
 import type { MemoryRecord, OpenBrainOptions } from "./types.js";
 
 type SqliteDatabase = InstanceType<typeof Database>;
+type DatabaseConstructor = typeof Database;
 
 export interface IndexedMemoryRow {
   id: string;
@@ -26,6 +27,7 @@ export interface IndexedMemoryRow {
 export async function openDatabase(options: OpenBrainOptions = {}) {
   const file = dbPath(options);
   await mkdir(dirname(file), { recursive: true });
+  const Database = await loadDatabase();
   const db = new Database(file);
   // OpenBrain is shared by every coding agent on the machine, so multiple
   // processes open this database concurrently. WAL allows a reader and a
@@ -61,6 +63,30 @@ export async function openDatabase(options: OpenBrainOptions = {}) {
   `);
   ensureMemoryColumns(db);
   return db;
+}
+
+async function loadDatabase(): Promise<DatabaseConstructor> {
+  try {
+    return (await import("better-sqlite3")).default;
+  } catch (error) {
+    if (isSqliteNodeAbiMismatch(error)) {
+      throw new Error(sqliteNativeModuleRecoveryMessage());
+    }
+    throw error;
+  }
+}
+
+export function sqliteNativeModuleRecoveryMessage() {
+  return (
+    "OpenBrain SQLite native module was built for another Node.js version.\n\n" +
+    "Fix:\n  cd ~/.local/share/openbrain/app && pnpm rebuild better-sqlite3\n\n" +
+    "Or reinstall OpenBrain:\n  curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash"
+  );
+}
+
+export function isSqliteNodeAbiMismatch(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("NODE_MODULE_VERSION") && message.includes("better_sqlite3.node");
 }
 
 export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding: number[] | null) {
