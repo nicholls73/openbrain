@@ -31,6 +31,7 @@ import {
   type SetupPathRuleInput,
   type StoredMemoryType
 } from "./types.js";
+import { maybePrintUpdateNotice } from "./update.js";
 
 async function main(argv: string[]) {
   const [area, command, ...rest] = argv;
@@ -265,6 +266,7 @@ async function memoryCommand(command: string | undefined, args: string[]) {
       throw new Error("memory search requires a query");
     }
     printSearchResults(await searchMemories(query, options));
+    await maybePrintUpdateNotice();
     return;
   }
 
