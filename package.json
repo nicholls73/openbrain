@@ -1,6 +1,6 @@
 {
   "name": "openbrain",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first shared memory layer for coding agents.",
   "type": "module",
   "bin": {

@@ -26,6 +26,10 @@ export function configPath(options: OpenBrainOptions = {}) {
   return path.join(openBrainHome(options), "config.json");
 }
 
+export function updateCheckPath(options: OpenBrainOptions = {}) {
+  return path.join(openBrainHome(options), "update-check.json");
+}
+
 export function dbPath(options: OpenBrainOptions = {}) {
   return path.join(brainHome(options), "openbrain.db");
 }
