@@ -4,7 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { openDatabase } from "../src/db.js";
+import {
+  isSqliteNodeAbiMismatch,
+  openDatabase,
+  openSqliteDatabase,
+  sqliteNativeModuleRecoveryMessage
+} from "../src/db.js";
 import {
   addMemory,
   addBrainPath,
@@ -58,6 +63,40 @@ describe("OpenBrain local storage", () => {
 
     expect(packageJson.dependencies).toHaveProperty("better-sqlite3");
     expect(dbSource).not.toContain("node:sqlite");
+  });
+
+  test("explains how to recover from a better-sqlite3 Node ABI mismatch", () => {
+    expect(
+      isSqliteNodeAbiMismatch(
+        new Error(
+          "better_sqlite3.node was compiled against a different Node.js version using NODE_MODULE_VERSION 137"
+        )
+      )
+    ).toBe(true);
+    expect(sqliteNativeModuleRecoveryMessage()).toContain("pnpm rebuild better-sqlite3");
+    expect(sqliteNativeModuleRecoveryMessage()).toContain("default install");
+    expect(sqliteNativeModuleRecoveryMessage()).toContain("OPENBRAIN_INSTALL_DIR");
+  });
+
+  test("wraps better-sqlite3 constructor ABI mismatch errors", () => {
+    const abiError = new Error(
+      "better_sqlite3.node was compiled against a different Node.js version using NODE_MODULE_VERSION 137"
+    );
+    const ThrowingDatabase = class {
+      constructor(_file: string) {
+        throw abiError;
+      }
+    };
+
+    expect(() => openSqliteDatabase("openbrain.db", ThrowingDatabase as never)).toThrow(
+      sqliteNativeModuleRecoveryMessage()
+    );
+    try {
+      openSqliteDatabase("openbrain.db", ThrowingDatabase as never);
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).cause).toBe(abiError);
+    }
   });
 
   test("init creates folders, config, and SQLite database", async () => {
