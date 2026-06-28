@@ -76,6 +76,7 @@ export interface SetupResult {
   pathRules: SetupPathRuleInput[];
   codexAgentFile?: string;
   claudeAgentFile?: string;
+  claudeSettingsFile?: string;
 }
 
 export interface AddMemoryInput {

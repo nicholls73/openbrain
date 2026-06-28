@@ -71,6 +71,8 @@ Confirm that each workspace path resolves to the expected active brain.
 
 OpenBrain currently ships Codex and Claude Code adapters. `openbrain setup --codex yes --claude yes` writes them.
 
+The Codex adapter writes an instruction block to `AGENTS.md`. The Claude Code adapter writes the same instruction block to `CLAUDE.md` and also installs a `SessionStart` hook in `~/.claude/settings.json` (honouring `CLAUDE_CONFIG_DIR`). The hook runs `openbrain hook session-start`, which performs daily dreaming and prints a reminder to search memory before tasks and record it after. The instruction block alone is advisory, so the hook is what makes Claude Code use OpenBrain on every session. The merge preserves existing settings and hooks and is idempotent across re-syncs.
+
 The adapters will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today. Dreaming prunes expired episodes, rebuilds the index from Markdown, and writes promotion candidate review files. It does not create durable memories automatically.
 
 ## Finish

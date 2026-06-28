@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,10 +22,12 @@ import {
   pruneEpisodes,
   promoteMemory,
   rebuildIndex,
+  runSessionStartHook,
   searchMemories,
   showMemory,
   setupOpenBrain,
   syncClaudeAgent,
+  syncClaudeSettings,
   syncCodexAgent
 } from "../src/openbrain.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
@@ -973,5 +975,111 @@ describe("Claude adapter sync", () => {
 
     expect(second).toContain("Do not remove this.");
     expect(second.match(/BEGIN OPENBRAIN/g)).toHaveLength(1);
+  });
+
+  test("installs a SessionStart hook in settings.json", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await initOpenBrain(options(home));
+
+    await syncClaudeAgent({ ...options(home), claudeHome });
+    const settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
+
+    const commands = settings.hooks.SessionStart.flatMap(
+      (group: { hooks: { command: string }[] }) => group.hooks.map((h) => h.command)
+    );
+    expect(commands).toContain("openbrain hook session-start");
+  });
+
+  test("preserves existing settings and hooks when installing the hook", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await initOpenBrain(options(home));
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(
+      path.join(claudeHome, "settings.json"),
+      JSON.stringify(
+        {
+          model: "opus",
+          hooks: {
+            SessionStart: [{ hooks: [{ type: "command", command: "echo keep-me" }] }],
+            Stop: [{ hooks: [{ type: "command", command: "echo other-hook" }] }]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await syncClaudeSettings({ ...options(home), claudeHome });
+    const settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
+
+    expect(settings.model).toBe("opus");
+    expect(settings.hooks.Stop[0].hooks[0].command).toBe("echo other-hook");
+    const commands = settings.hooks.SessionStart.flatMap(
+      (group: { hooks: { command: string }[] }) => group.hooks.map((h) => h.command)
+    );
+    expect(commands).toContain("echo keep-me");
+    expect(commands).toContain("openbrain hook session-start");
+  });
+
+  test("re-syncing does not duplicate the SessionStart hook", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await initOpenBrain(options(home));
+
+    await syncClaudeSettings({ ...options(home), claudeHome });
+    await syncClaudeSettings({ ...options(home), claudeHome });
+    const settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
+
+    const commands = settings.hooks.SessionStart.flatMap(
+      (group: { hooks: { command: string }[] }) => group.hooks.map((h) => h.command)
+    );
+    expect(commands.filter((c: string) => c === "openbrain hook session-start")).toHaveLength(1);
+  });
+
+  test("session-start hook runs dreaming and returns a search reminder", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const reminder = await runSessionStartHook(options(home));
+
+    expect(reminder).toContain("openbrain memory search");
+    expect(reminder).toContain("openbrain memory add");
+  });
+
+  test("session-start hook does not claim memory is active for an unassigned path", async () => {
+    const home = await tempHome();
+    const projectPath = path.join(home, "new-project");
+    await initOpenBrain(options(home));
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "ask", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+
+    const reminder = await runSessionStartHook({ ...options(home), cwd: projectPath });
+
+    expect(reminder).toContain("openbrain brain add-path");
+    expect(reminder).toContain(projectPath);
+    expect(reminder).not.toContain("memory is active");
+    expect(reminder).not.toContain("Daily dreaming has already been handled");
+  });
+
+  test("session-start hook reports OpenBrain disabled for a disabled path", async () => {
+    const home = await tempHome();
+    const projectPath = path.join(home, "off-project");
+    await initOpenBrain(options(home));
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "disabled", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+
+    const reminder = await runSessionStartHook({ ...options(home), cwd: projectPath });
+
+    expect(reminder).toContain("disabled for this workspace path");
+    expect(reminder).not.toContain("memory is active");
   });
 });
