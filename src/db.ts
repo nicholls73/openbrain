@@ -28,7 +28,7 @@ export async function openDatabase(options: OpenBrainOptions = {}) {
   const file = dbPath(options);
   await mkdir(dirname(file), { recursive: true });
   const Database = await loadDatabase();
-  const db = new Database(file);
+  const db = openSqliteDatabase(file, Database);
   // OpenBrain is shared by every coding agent on the machine, so multiple
   // processes open this database concurrently. WAL allows a reader and a
   // writer at once, and busy_timeout makes a competing writer wait for the
@@ -70,7 +70,18 @@ async function loadDatabase(): Promise<DatabaseConstructor> {
     return (await import("better-sqlite3")).default;
   } catch (error) {
     if (isSqliteNodeAbiMismatch(error)) {
-      throw new Error(sqliteNativeModuleRecoveryMessage());
+      throw new Error(sqliteNativeModuleRecoveryMessage(), { cause: error });
+    }
+    throw error;
+  }
+}
+
+export function openSqliteDatabase(file: string, Database: DatabaseConstructor) {
+  try {
+    return new Database(file);
+  } catch (error) {
+    if (isSqliteNodeAbiMismatch(error)) {
+      throw new Error(sqliteNativeModuleRecoveryMessage(), { cause: error });
     }
     throw error;
   }
@@ -79,7 +90,8 @@ async function loadDatabase(): Promise<DatabaseConstructor> {
 export function sqliteNativeModuleRecoveryMessage() {
   return (
     "OpenBrain SQLite native module was built for another Node.js version.\n\n" +
-    "Fix:\n  cd ~/.local/share/openbrain/app && pnpm rebuild better-sqlite3\n\n" +
+    "Fix default install:\n  cd ~/.local/share/openbrain/app && pnpm rebuild better-sqlite3\n\n" +
+    "If you set OPENBRAIN_INSTALL_DIR, run the rebuild in that custom install directory.\n\n" +
     "Or reinstall OpenBrain:\n  curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash"
   );
 }
