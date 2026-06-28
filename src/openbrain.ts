@@ -471,20 +471,47 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
 }
 
 // Body of the `openbrain hook session-start` command. Claude Code runs this at
-// session start and injects stdout as context. Runs daily dreaming and returns
-// a short reminder to search memory before tasks and record it after. Never
-// throws: a failing SessionStart hook must not block the session.
+// session start and injects stdout as context. Never throws: a failing
+// SessionStart hook must not block the session. The guidance it returns depends
+// on whether a brain is actually available for the current workspace path, so
+// it never tells the agent memory is active when it is not.
 export async function runSessionStartHook(options: OpenBrainOptions = {}): Promise<string> {
-  let brain = "unknown";
+  const cwd = options.cwd ?? process.cwd();
+
+  let brain: string;
+  try {
+    brain = await getCurrentBrain(options);
+  } catch {
+    // Resolution itself failed; give safe guidance without claiming memory works.
+    return [
+      "OpenBrain could not resolve a brain for this workspace path.",
+      `If this is unexpected, check ~/.openbrain/config.json. Do not assume memory is available for ${cwd}.`
+    ].join("\n");
+  }
+
+  // getCurrentBrain returns "<unmatched>:<brain>" when the path is not bound to
+  // an enabled brain. unmatched is "ask" or "disabled"; "default" resolves as
+  // enabled. Brain names cannot contain ":", so the prefix check is safe.
+  if (brain.startsWith("ask:")) {
+    return [
+      "OpenBrain has no brain assigned to this workspace path.",
+      `Ask the user which brain should own this path, then run: openbrain brain add-path <brain> "${cwd}"`,
+      "Do not search or record memory until a brain is assigned."
+    ].join("\n");
+  }
+  if (brain.startsWith("disabled:")) {
+    return [
+      "OpenBrain is disabled for this workspace path.",
+      "Skip memory search and recording for this session."
+    ].join("\n");
+  }
+
+  // Brain is available: run daily maintenance (best-effort) and give the agent
+  // the search/record reminder.
   try {
     await dreamMaybe(options);
   } catch {
     // Dreaming is best-effort. Swallow so the session always starts.
-  }
-  try {
-    brain = await getCurrentBrain(options);
-  } catch {
-    // Brain resolution is best-effort for the reminder text only.
   }
   return [
     `OpenBrain memory is active (brain: ${brain}).`,

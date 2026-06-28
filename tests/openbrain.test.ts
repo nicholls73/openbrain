@@ -1009,4 +1009,38 @@ describe("Claude adapter sync", () => {
     expect(reminder).toContain("openbrain memory search");
     expect(reminder).toContain("openbrain memory add");
   });
+
+  test("session-start hook does not claim memory is active for an unassigned path", async () => {
+    const home = await tempHome();
+    const projectPath = path.join(home, "new-project");
+    await initOpenBrain(options(home));
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "ask", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+
+    const reminder = await runSessionStartHook({ ...options(home), cwd: projectPath });
+
+    expect(reminder).toContain("openbrain brain add-path");
+    expect(reminder).toContain(projectPath);
+    expect(reminder).not.toContain("memory is active");
+    expect(reminder).not.toContain("Daily dreaming has already been handled");
+  });
+
+  test("session-start hook reports OpenBrain disabled for a disabled path", async () => {
+    const home = await tempHome();
+    const projectPath = path.join(home, "off-project");
+    await initOpenBrain(options(home));
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "disabled", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+
+    const reminder = await runSessionStartHook({ ...options(home), cwd: projectPath });
+
+    expect(reminder).toContain("disabled for this workspace path");
+    expect(reminder).not.toContain("memory is active");
+  });
 });
