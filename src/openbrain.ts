@@ -14,7 +14,16 @@ import {
 } from "./db.js";
 import type { IndexedMemoryRow } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
-import { brainHome, claudeHome, codexHome, dreamsDir, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
+import {
+  brainHome,
+  claudeHome,
+  claudeSettingsPath,
+  codexHome,
+  dreamsDir,
+  episodesDir,
+  memoriesDir,
+  openBrainHome
+} from "./paths.js";
 import {
   memoryMetadataDefaults,
   parseMemoryFile,
@@ -42,6 +51,10 @@ import type {
 
 const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
 const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
+
+// Stable marker for the Claude Code SessionStart hook command. The adapter keys
+// idempotent settings.json merges off this substring, so it must not change.
+const CLAUDE_HOOK_COMMAND = "openbrain hook session-start";
 
 export async function initOpenBrain(options: OpenBrainOptions = {}) {
   const { options: scopedOptions } = await prepareOpenBrain(options);
@@ -89,7 +102,8 @@ export async function setupOpenBrain(
     currentBrain,
     pathRules,
     codexAgentFile,
-    claudeAgentFile
+    claudeAgentFile,
+    claudeSettingsFile: input.syncClaude ? claudeSettingsPath(options) : undefined
   };
 }
 
@@ -399,7 +413,89 @@ export async function syncCodexAgent(options: OpenBrainOptions = {}) {
 }
 
 export async function syncClaudeAgent(options: OpenBrainOptions = {}) {
-  return syncInstructionFile(claudeHome(options), "CLAUDE.md", options);
+  const file = await syncInstructionFile(claudeHome(options), "CLAUDE.md", options);
+  // The CLAUDE.md block is advisory only. Install a SessionStart hook so Claude
+  // Code actually runs daily dreaming and is reminded to search memory on every
+  // session, without relying on the agent to follow the instructions.
+  await syncClaudeSettings(options);
+  return file;
+}
+
+// Merge the OpenBrain SessionStart hook into the user's Claude Code
+// settings.json, preserving any existing settings and hooks. Idempotent: a
+// re-sync replaces our prior entry rather than appending a duplicate.
+export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
+  const file = claudeSettingsPath(options);
+  await mkdir(path.dirname(file), { recursive: true });
+
+  let settings: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(file, "utf8");
+    const parsed = raw.trim() ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      settings = parsed as Record<string, unknown>;
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const hooks = isRecord(settings.hooks) ? { ...settings.hooks } : {};
+  const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
+
+  // Drop any prior OpenBrain command entries, then any group left empty, so
+  // repeated syncs never accumulate duplicate hooks.
+  const cleaned = sessionStart
+    .map((group) => {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) {
+        return group;
+      }
+      const remaining = group.hooks.filter(
+        (entry) => !(isRecord(entry) && typeof entry.command === "string" && entry.command.includes(CLAUDE_HOOK_COMMAND))
+      );
+      return { ...group, hooks: remaining };
+    })
+    .filter((group) => !(isRecord(group) && Array.isArray(group.hooks) && group.hooks.length === 0));
+
+  cleaned.push({
+    hooks: [{ type: "command", command: CLAUDE_HOOK_COMMAND }]
+  });
+
+  hooks.SessionStart = cleaned;
+  settings.hooks = hooks;
+
+  await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  return file;
+}
+
+// Body of the `openbrain hook session-start` command. Claude Code runs this at
+// session start and injects stdout as context. Runs daily dreaming and returns
+// a short reminder to search memory before tasks and record it after. Never
+// throws: a failing SessionStart hook must not block the session.
+export async function runSessionStartHook(options: OpenBrainOptions = {}): Promise<string> {
+  let brain = "unknown";
+  try {
+    await dreamMaybe(options);
+  } catch {
+    // Dreaming is best-effort. Swallow so the session always starts.
+  }
+  try {
+    brain = await getCurrentBrain(options);
+  } catch {
+    // Brain resolution is best-effort for the reminder text only.
+  }
+  return [
+    `OpenBrain memory is active (brain: ${brain}).`,
+    `Before starting a task, run: openbrain memory search "<short description of the task>" and use only relevant results.`,
+    `After meaningful work, record durable memories with: openbrain memory add --type <preference|workflow|workspace|decision|episode> --text "...".`,
+    `Daily dreaming has already been handled for this session.`
+  ].join("\n");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function syncInstructionFile(dir: string, fileName: string, options: OpenBrainOptions = {}) {

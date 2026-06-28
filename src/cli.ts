@@ -12,6 +12,7 @@ import {
   pruneEpisodes,
   promoteMemory,
   rebuildIndex,
+  runSessionStartHook,
   searchMemories,
   showMemory,
   setupOpenBrain,
@@ -31,6 +32,7 @@ import {
   type SetupPathRuleInput,
   type StoredMemoryType
 } from "./types.js";
+import { claudeSettingsPath } from "./paths.js";
 import { maybePrintUpdateNotice } from "./update.js";
 
 async function main(argv: string[]) {
@@ -57,6 +59,7 @@ async function main(argv: string[]) {
     if (agent === "claude") {
       const file = await syncClaudeAgent();
       console.log(`Synced Claude adapter: ${file}`);
+      console.log(`Installed SessionStart hook: ${claudeSettingsPath()}`);
       return;
     }
     throw new Error("Supported agent sync targets: codex, claude.");
@@ -85,6 +88,12 @@ async function main(argv: string[]) {
 
   if (area === "dream") {
     await dreamCommand(command, rest);
+    return;
+  }
+
+  if (area === "hook" && command === "session-start") {
+    const reminder = await runSessionStartHook();
+    console.log(reminder);
     return;
   }
 
@@ -136,6 +145,9 @@ async function setupCommand(args: string[]) {
   }
   console.log(`Codex: ${result.codexAgentFile ? result.codexAgentFile : "not synced"}`);
   console.log(`Claude: ${result.claudeAgentFile ? result.claudeAgentFile : "not synced"}`);
+  if (result.claudeSettingsFile) {
+    console.log(`Claude hook: ${result.claudeSettingsFile}`);
+  }
 }
 
 async function readSetupInput(args: string[]): Promise<SetupInput> {
@@ -463,6 +475,7 @@ function usage() {
   openbrain agents sync codex|claude
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]
+  openbrain hook session-start
   openbrain memory add --type <type> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--promoted-from <id>] [--promote-as <type>]
   openbrain memory promote <episode-id> --type <type> --text <text>
   openbrain memory search <query> [--type <type>] [--scope <value>] [--confidence low|medium|high] [--durable-only] [--include-private]

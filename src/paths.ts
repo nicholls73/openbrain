@@ -22,6 +22,10 @@ export function claudeHome(options: OpenBrainOptions = {}) {
   return options.claudeHome ?? process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
 }
 
+export function claudeSettingsPath(options: OpenBrainOptions = {}) {
+  return path.join(claudeHome(options), "settings.json");
+}
+
 export function configPath(options: OpenBrainOptions = {}) {
   return path.join(openBrainHome(options), "config.json");
 }
