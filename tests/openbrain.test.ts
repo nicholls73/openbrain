@@ -1,7 +1,9 @@
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
 import {
@@ -35,6 +37,7 @@ import { isMemoryType, isStoredMemoryType } from "../src/types.js";
 
 const tempRoots: string[] = [];
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const execFileAsync = promisify(execFile);
 
 async function tempHome() {
   const root = await mkdtemp(path.join(tmpdir(), "openbrain-test-"));
@@ -54,6 +57,31 @@ function options(home: string, embedder?: EmbeddingProvider): OpenBrainOptions {
     now: () => new Date("2026-06-04T09:30:00.000Z"),
     embedder
   };
+}
+
+async function git(cwd: string, args: string[]) {
+  await execFileAsync("git", args, { cwd });
+}
+
+async function createWorktreeFixture(home: string, name = "feature") {
+  const source = path.join(home, "projects", "repo");
+  const worktree = path.join(home, "projects", `repo-${name}`);
+  await mkdir(source, { recursive: true });
+  await git(source, ["init"]);
+  await git(source, ["config", "user.name", "OpenBrain Test"]);
+  await git(source, ["config", "user.email", "openbrain@example.test"]);
+  await writeFile(path.join(source, "README.md"), "fixture\n", "utf8");
+  await git(source, ["add", "README.md"]);
+  await git(source, ["commit", "-m", "init"]);
+  await git(source, ["worktree", "add", "-b", name, worktree]);
+  return {
+    source: await realpath(source),
+    worktree: await realpath(worktree)
+  };
+}
+
+async function readPathRules(home: string) {
+  return (await loadConfig(options(home))).brains.pathRules;
 }
 
 describe("OpenBrain local storage", () => {
@@ -262,6 +290,176 @@ describe("OpenBrain local storage", () => {
     );
 
     expect(await getCurrentBrain({ ...options(home), cwd: path.join(realRoot, "repo") })).toBe("alpha");
+  });
+
+  test("inherits source brain for an unmapped git worktree", async () => {
+    const home = await tempHome();
+    const { source, worktree } = await createWorktreeFixture(home);
+    await initOpenBrain(options(home));
+    await addBrainPath("work", source, options(home));
+
+    expect(await getCurrentBrain({ ...options(home), cwd: worktree })).toBe("work");
+  });
+
+  test("persists inherited worktree routing to path rules", async () => {
+    const home = await tempHome();
+    const { source, worktree } = await createWorktreeFixture(home);
+    await initOpenBrain(options(home));
+    await addBrainPath("work", source, options(home));
+
+    await getCurrentBrain({ ...options(home), cwd: worktree });
+
+    expect(await readPathRules(home)).toEqual([
+      {
+        brain: "work",
+        paths: [source, worktree]
+      }
+    ]);
+  });
+
+  test("session hook reports active inherited brain from a worktree", async () => {
+    const home = await tempHome();
+    const { source, worktree } = await createWorktreeFixture(home);
+    await initOpenBrain(options(home));
+    await addBrainPath("work", source, options(home));
+
+    await expect(runSessionStartHook({ ...options(home), cwd: worktree })).resolves.toContain(
+      "OpenBrain memory is active (brain: work)."
+    );
+  });
+
+  test("explicit worktree mapping wins over source brain inheritance", async () => {
+    const home = await tempHome();
+    const { source, worktree } = await createWorktreeFixture(home);
+    await initOpenBrain(options(home));
+    await addBrainPath("work", source, options(home));
+    await addBrainPath("experiment", worktree, options(home));
+
+    expect(await getCurrentBrain({ ...options(home), cwd: worktree })).toBe("experiment");
+    expect(await readPathRules(home)).toEqual([
+      {
+        brain: "work",
+        paths: [source]
+      },
+      {
+        brain: "experiment",
+        paths: [worktree]
+      }
+    ]);
+  });
+
+  test("later source mapping changes do not overwrite explicit worktree mapping", async () => {
+    const home = await tempHome();
+    const { source, worktree } = await createWorktreeFixture(home);
+    await initOpenBrain(options(home));
+    await addBrainPath("work", source, options(home));
+    await addBrainPath("experiment", worktree, options(home));
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify(
+        {
+          brains: {
+            default: "main",
+            unmatched: "ask",
+            pathRules: [
+              { brain: "other", paths: [source] },
+              { brain: "experiment", paths: [worktree] }
+            ]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    expect(await getCurrentBrain({ ...options(home), cwd: worktree })).toBe("experiment");
+    expect(await readPathRules(home)).toEqual([
+      { brain: "other", paths: [source] },
+      { brain: "experiment", paths: [worktree] }
+    ]);
+  });
+
+  test("brain add-path remaps a previously inherited worktree path", async () => {
+    const home = await tempHome();
+    const { source, worktree } = await createWorktreeFixture(home);
+    await initOpenBrain(options(home));
+    await addBrainPath("work", source, options(home));
+    await getCurrentBrain({ ...options(home), cwd: worktree });
+
+    await addBrainPath("experiment", worktree, options(home));
+
+    expect(await getCurrentBrain({ ...options(home), cwd: worktree })).toBe("experiment");
+    expect(await readPathRules(home)).toEqual([
+      { brain: "work", paths: [source] },
+      { brain: "experiment", paths: [worktree] }
+    ]);
+  });
+
+  test("ambiguous source mappings leave worktree unmapped and ask the user", async () => {
+    const home = await tempHome();
+    const { source, worktree } = await createWorktreeFixture(home);
+    await initOpenBrain(options(home));
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify(
+        {
+          brains: {
+            default: "main",
+            unmatched: "ask",
+            pathRules: [
+              { brain: "alpha", paths: [source] },
+              { brain: "beta", paths: [source] }
+            ]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    expect(await getCurrentBrain({ ...options(home), cwd: worktree })).toBe("ask:main");
+    await expect(searchMemories("routing", { ...options(home), cwd: worktree })).rejects.toThrow(
+      "Ask the user which brain"
+    );
+    expect(await readPathRules(home)).toEqual([
+      { brain: "alpha", paths: [source] },
+      { brain: "beta", paths: [source] }
+    ]);
+  });
+
+  test("unmapped worktree source follows unmatched path behavior", async () => {
+    const defaultHome = await tempHome();
+    const { worktree: defaultWorktree } = await createWorktreeFixture(defaultHome);
+    await initOpenBrain(options(defaultHome));
+    expect(await getCurrentBrain({ ...options(defaultHome), cwd: defaultWorktree })).toBe("main");
+
+    const askHome = await tempHome();
+    const { worktree: askWorktree } = await createWorktreeFixture(askHome);
+    await initOpenBrain(options(askHome));
+    await writeFile(
+      path.join(askHome, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "ask", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+    expect(await getCurrentBrain({ ...options(askHome), cwd: askWorktree })).toBe("ask:main");
+    await expect(runSessionStartHook({ ...options(askHome), cwd: askWorktree })).resolves.toContain(
+      "OpenBrain has no brain assigned"
+    );
+
+    const disabledHome = await tempHome();
+    const { worktree: disabledWorktree } = await createWorktreeFixture(disabledHome);
+    await initOpenBrain(options(disabledHome));
+    await writeFile(
+      path.join(disabledHome, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "disabled", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+    expect(await getCurrentBrain({ ...options(disabledHome), cwd: disabledWorktree })).toBe("disabled:main");
+    await expect(runSessionStartHook({ ...options(disabledHome), cwd: disabledWorktree })).resolves.toContain(
+      "OpenBrain is disabled"
+    );
   });
 
   test("loads partial nested config without dropping defaults", async () => {

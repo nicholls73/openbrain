@@ -129,6 +129,14 @@ export async function addBrainPath(
   }
 
   const canonicalPath = canonicalPathForRule(targetPath);
+  for (const rule of config.brains.pathRules) {
+    if (rule.brain !== normalizedBrain) {
+      rule.paths = rule.paths.filter((existingPath) => canonicalPathForRule(existingPath) !== canonicalPath);
+    }
+  }
+  config.brains.pathRules = config.brains.pathRules.filter(
+    (rule) => rule.brain === normalizedBrain || rule.paths.length > 0
+  );
   const existing = config.brains.pathRules.find((rule) => rule.brain === normalizedBrain);
   if (existing) {
     if (!existing.paths.includes(canonicalPath)) {
@@ -579,6 +587,18 @@ async function prepareOpenBrain(
   await mkdir(openBrainHome(options), { recursive: true });
   const config = await loadConfig(options);
   const resolution = resolveBrain(config, options);
+  if (resolution.inheritedPath) {
+    const rule = config.brains.pathRules.find((candidate) => candidate.brain === resolution.brain);
+    if (rule) {
+      if (!rule.paths.includes(resolution.inheritedPath)) {
+        rule.paths.push(resolution.inheritedPath);
+        await saveConfig(config, options);
+      }
+    } else {
+      config.brains.pathRules.push({ brain: resolution.brain, paths: [resolution.inheritedPath] });
+      await saveConfig(config, options);
+    }
+  }
   if (!resolution.enabled && !behavior.allowUnavailable) {
     throw new BrainUnavailableError(resolution);
   }
