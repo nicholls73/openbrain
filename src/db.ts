@@ -21,7 +21,37 @@ export interface IndexedMemoryRow {
   promoted_from: string | null;
   sensitivity: string;
   promote_as: string | null;
-  embedding: string | null;
+  // Float32 blob for rows written by current versions; legacy rows hold JSON
+  // text until the next index rebuild rewrites them.
+  embedding: Buffer | string | null;
+}
+
+// Embeddings are stored as raw little-endian float32 blobs. The previous JSON
+// text encoding cost a JSON.parse per row on every vector search and roughly
+// 5x the storage.
+export function encodeEmbedding(embedding: number[] | null): Buffer | null {
+  return embedding ? Buffer.from(new Float32Array(embedding).buffer) : null;
+}
+
+export function decodeEmbedding(value: Buffer | string | null): ArrayLike<number> | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    // Legacy JSON text row; rewritten as a blob on the next index rebuild.
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? (parsed as number[]) : null;
+    } catch {
+      return null;
+    }
+  }
+  if (value.byteLength % 4 !== 0) {
+    return null;
+  }
+  // Copy into a fresh buffer: the Buffer's byteOffset within its pool is not
+  // guaranteed to be 4-byte aligned, and Float32Array views require alignment.
+  return new Float32Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
 }
 
 export async function openDatabase(options: OpenBrainOptions = {}) {
@@ -140,7 +170,7 @@ export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding
     record.metadata.promotedFrom ?? null,
     record.metadata.sensitivity,
     record.metadata.promoteAs ?? null,
-    embedding ? JSON.stringify(embedding) : null,
+    encodeEmbedding(embedding),
     now
   );
   deleteFtsRow(db, record.id);
