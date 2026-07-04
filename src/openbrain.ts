@@ -365,25 +365,45 @@ export async function rebuildIndex(options: OpenBrainOptions = {}) {
 
 export async function pruneEpisodes(options: OpenBrainOptions = {}) {
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
-  const cutoff = (options.now?.() ?? new Date()).getTime() - config.retentionDays * 24 * 60 * 60 * 1000;
+  const now = options.now?.() ?? new Date();
   const pruned: string[] = [];
   const db = await openDatabase(scopedOptions);
   try {
+    const rowsByPath = new Map(listMemoryRows(db).map((row) => [row.path, row]));
     for (const filePath of await markdownFiles(episodesDir(scopedOptions))) {
-      const stats = await stat(filePath);
-      if (episodeTimestamp(filePath, stats.mtime) < cutoff) {
-        const row = listMemoryRows(db).find((memory) => memory.path === filePath);
-        await rm(filePath, { force: true });
-        if (row) {
-          deleteIndexedMemory(db, row.id);
-        }
-        pruned.push(filePath);
+      if (!(await episodeExpired(filePath, config.retentionDays, now))) {
+        continue;
       }
+      const row = rowsByPath.get(filePath);
+      await rm(filePath, { force: true });
+      if (row) {
+        deleteIndexedMemory(db, row.id);
+      }
+      pruned.push(filePath);
     }
   } finally {
     db.close();
   }
   return pruned;
+}
+
+// An episode is pruned once its effective expiry passes: the explicit or
+// defaulted expiresAt from its metadata, which is the same value search uses
+// to hide it, so prune and search agree on episode lifetime. Files without a
+// usable expiry (no frontmatter, or frontmatter that fails to parse) keep the
+// filename-date/mtime retention cutoff.
+async function episodeExpired(filePath: string, retentionDays: number, now: Date) {
+  try {
+    const record = await parseMemoryFile(filePath, retentionDays);
+    if (record.metadata.expiresAt) {
+      return new Date(record.metadata.expiresAt).getTime() <= now.getTime();
+    }
+  } catch {
+    // Unparseable episodes fall through to filename/mtime-based retention.
+  }
+  const stats = await stat(filePath);
+  const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+  return episodeTimestamp(filePath, stats.mtime) + retentionMs < now.getTime();
 }
 
 export async function dreamMaybe(options: OpenBrainOptions = {}): Promise<DreamResult> {
