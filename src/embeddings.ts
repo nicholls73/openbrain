@@ -9,7 +9,30 @@ export function createEmbeddingProvider(
     return disabledEmbeddingProvider();
   }
 
-  return options.embedder ?? new TransformersEmbeddingProvider(config, options);
+  return options.embedder ?? serialiseEmbeds(new TransformersEmbeddingProvider(config, options));
+}
+
+// The local runtime offers no way to abort an inference once started, so a
+// timed-out embed keeps computing in the background. Serialising embeds means
+// at most one inference is ever in flight: while it runs, queued embeds spend
+// their timeout waiting and return null without spawning more work, instead
+// of piling up concurrent inferences behind a slow model.
+export function serialiseEmbeds(provider: EmbeddingProvider): EmbeddingProvider {
+  let inflight: Promise<unknown> = Promise.resolve();
+  const serialised: EmbeddingProvider = {
+    embed(text: string) {
+      const run = inflight.then(() => provider.embed(text));
+      inflight = run.catch(() => undefined);
+      return run;
+    }
+  };
+  if (provider.ready) {
+    serialised.ready = () => provider.ready!();
+  }
+  if (provider.disabled) {
+    serialised.disabled = provider.disabled;
+  }
+  return serialised;
 }
 
 export function disabledEmbeddingProvider(): EmbeddingProvider {
