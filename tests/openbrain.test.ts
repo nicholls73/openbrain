@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { loadConfig } from "../src/config.js";
 import {
@@ -36,6 +38,7 @@ import {
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
 import { isMemoryType, isStoredMemoryType } from "../src/types.js";
 
+const execFileAsync = promisify(execFile);
 const tempRoots: string[] = [];
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -234,6 +237,61 @@ describe("OpenBrain local storage", () => {
 
     await addBrainPath("alpha", projectPath, options(home));
     expect(await getCurrentBrain({ ...options(home), cwd: projectPath })).toBe("alpha");
+  });
+
+  test("git worktrees inherit the brain of their source repo", async () => {
+    const home = await tempHome();
+    const repo = path.join(home, "projects", "alpha-repo");
+    const worktree = path.join(home, "worktrees", "alpha-feature");
+    await mkdir(repo, { recursive: true });
+    await writeFile(path.join(repo, "README.md"), "alpha\n", "utf8");
+    const git = (args: string[]) =>
+      execFileAsync("git", ["-C", repo, "-c", "user.name=test", "-c", "user.email=test@test", ...args]);
+    await git(["init"]);
+    await git(["add", "."]);
+    await git(["commit", "-m", "init"]);
+    await git(["worktree", "add", worktree, "-b", "feature"]);
+
+    await initOpenBrain(options(home));
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify(
+        {
+          brains: {
+            default: "main",
+            unmatched: "ask",
+            pathRules: [{ brain: "alpha", paths: [repo] }]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    // The source repo matches its rule directly; the linked worktree inherits
+    // the same brain even though no rule names its path.
+    expect(await getBrainStatus({ ...options(home), cwd: repo })).toEqual({
+      brain: "alpha",
+      state: "active"
+    });
+    expect(await getBrainStatus({ ...options(home), cwd: worktree })).toEqual({
+      brain: "alpha",
+      state: "active"
+    });
+
+    // Paths that are not worktrees of a mapped repo keep the ask behaviour.
+    expect(await getBrainStatus({ ...options(home), cwd: path.join(home, "elsewhere") })).toEqual({
+      brain: "main",
+      state: "ask"
+    });
+
+    // An explicit rule for the worktree path takes precedence over inheritance.
+    await addBrainPath("beta", worktree, options(home));
+    expect(await getBrainStatus({ ...options(home), cwd: worktree })).toEqual({
+      brain: "beta",
+      state: "active"
+    });
   });
 
   test("getBrainStatus reports a typed state instead of a delimited string", async () => {

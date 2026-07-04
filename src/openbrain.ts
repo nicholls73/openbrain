@@ -1304,7 +1304,8 @@ isolation between contexts.
 OpenBrain uses the current workspace path only to choose the active brain.
 Treat that brain as the memory container. Refer to memory by brain name or
 active brain. Refer to paths only when configuring brain routing or discussing
-files.
+files. Git worktrees automatically use the brain of their source repository,
+so a worktree created from a mapped path needs no extra configuration.
 
 If OpenBrain reports that the current workspace path is not assigned to a brain,
 ask the user which brain should own that workspace path, then run:

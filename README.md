@@ -196,6 +196,8 @@ Example `~/.openbrain/config.json`:
 
 Rules are matched against the current workspace path. The most specific matching path wins.
 
+Git worktrees inherit brain routing from their source repository: if a repo path is mapped to a brain, linked worktrees created from it resolve to the same brain automatically, without adding rules for each worktree. An explicit rule for a worktree path still takes precedence.
+
 `brains.unmatched` controls what happens when no rule matches:
 
 - `default`: use `brains.default`.
