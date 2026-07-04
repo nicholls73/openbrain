@@ -842,6 +842,46 @@ describe("OpenBrain local storage", () => {
     await expect(readFile(oldEpisode, "utf8")).rejects.toThrow();
   });
 
+  test("prune keeps episodes whose explicit expiresAt is still in the future", async () => {
+    const home = await tempHome();
+    const episode = await addMemory(
+      {
+        type: "episode",
+        text: "Extended handoff context stays until December.",
+        metadata: { expiresAt: "2026-12-01T00:00:00.000Z" }
+      },
+      options(home)
+    );
+
+    // Two months later: past the 30-day retention cutoff, before expiresAt.
+    const later = { ...options(home), now: () => new Date("2026-08-01T00:00:00.000Z") };
+    const pruned = await pruneEpisodes(later);
+
+    expect(pruned).toHaveLength(0);
+    await expect(readFile(episode.path, "utf8")).resolves.toContain("Extended handoff context");
+    expect(await searchMemories("extended handoff", later)).toHaveLength(1);
+  });
+
+  test("prune removes episodes at their explicit expiresAt before the retention cutoff", async () => {
+    const home = await tempHome();
+    const episode = await addMemory(
+      {
+        type: "episode",
+        text: "Short-lived note expires tomorrow.",
+        metadata: { expiresAt: "2026-06-05T00:00:00.000Z" }
+      },
+      options(home)
+    );
+
+    // Six days later: well within 30-day retention, past expiresAt.
+    const later = { ...options(home), now: () => new Date("2026-06-10T00:00:00.000Z") };
+    const pruned = await pruneEpisodes(later);
+
+    expect(pruned).toContain(episode.path);
+    await expect(readFile(episode.path, "utf8")).rejects.toThrow();
+    expect(await listMemories(options(home))).toHaveLength(0);
+  });
+
   test("dream run records state, writes an audit log, prunes episodes, and rebuilds the index", async () => {
     const home = await tempHome();
     await initOpenBrain(options(home));
