@@ -40,6 +40,9 @@ export function renderMemoryMarkdown(record: MemoryRecord) {
     `sensitivity: ${record.metadata.sensitivity}`
   ];
 
+  if (record.metadata.updatedAt) {
+    lines.push(`updatedAt: ${record.metadata.updatedAt}`);
+  }
   if (record.metadata.expiresAt) {
     lines.push(`expiresAt: ${record.metadata.expiresAt}`);
   }
@@ -88,7 +91,8 @@ export async function parseMemoryFile(filePath: string, retentionDays = 30): Pro
       expiresAt: parseExpiresAt(meta.expiresAt, filePath),
       promotedFrom: meta.promotedFrom,
       sensitivity: parseSensitivity(meta.sensitivity),
-      promoteAs: parseDurableType(meta.promoteAs)
+      promoteAs: parseDurableType(meta.promoteAs),
+      updatedAt: meta.updatedAt
     })
   };
 }
@@ -122,6 +126,9 @@ export function memoryMetadataDefaults(
   }
   if (input.promoteAs && isEpisode) {
     metadata.promoteAs = input.promoteAs;
+  }
+  if (input.updatedAt?.trim()) {
+    metadata.updatedAt = input.updatedAt.trim();
   }
 
   return metadata;

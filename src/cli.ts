@@ -9,6 +9,7 @@ import {
   getCurrentBrain,
   initOpenBrain,
   listMemories,
+  mergeMemory,
   promoteMemory,
   pruneEpisodes,
   rebuildIndex,
@@ -17,7 +18,8 @@ import {
   setupOpenBrain,
   showMemory,
   syncClaudeAgent,
-  syncCodexAgent
+  syncCodexAgent,
+  updateMemory
 } from "./openbrain.js";
 import { claudeSettingsPath } from "./paths.js";
 import {
@@ -251,6 +253,58 @@ async function memoryCommand(command: string | undefined, args: string[]) {
       }
     });
     console.log(`${result.id}\t${result.path}`);
+    if (result.duplicateOf) {
+      console.warn(
+        `openbrain: possible duplicate of [${result.duplicateOf.id}] "${result.duplicateOf.title}" ` +
+          `(similarity ${result.duplicateOf.similarity.toFixed(2)}). If this is the same fact, fold it ` +
+          `into the existing memory instead:\n` +
+          `openbrain memory update ${result.duplicateOf.id} --text "<combined memory>"\n` +
+          `openbrain memory delete ${result.id}`
+      );
+    }
+    return;
+  }
+
+  if (command === "update") {
+    const id = args[0];
+    const text = readOption(args, "--text");
+    if (!id) {
+      throw new Error("memory update requires a memory id");
+    }
+    if (!text) {
+      throw new Error("memory update requires --text");
+    }
+    const result = await updateMemory({
+      id,
+      text,
+      metadata: {
+        source: readOption(args, "--source"),
+        scope: readOption(args, "--scope"),
+        confidence: parseConfidence(readOption(args, "--confidence")),
+        expiresAt: readOption(args, "--expires-at"),
+        sensitivity: parseSensitivity(readOption(args, "--sensitivity"))
+      }
+    });
+    console.log(`${result.id}\t${result.path}`);
+    return;
+  }
+
+  if (command === "merge") {
+    const sourceId = args[0];
+    const targetId = readOption(args, "--into");
+    const text = readOption(args, "--text");
+    if (!sourceId) {
+      throw new Error("memory merge requires a source memory id");
+    }
+    if (!targetId) {
+      throw new Error("memory merge requires --into <target-id>");
+    }
+    if (!text) {
+      throw new Error("memory merge requires --text with the merged memory");
+    }
+    const result = await mergeMemory({ sourceId, targetId, text });
+    console.log(`${result.id}\t${result.path}`);
+    console.log(`Merged and deleted ${sourceId}.`);
     return;
   }
 
@@ -461,6 +515,9 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
     if (result.promotionCandidatesPath) {
       console.log(`Promotion candidates: ${result.promotionCandidatesPath}`);
     }
+    if (result.consolidationReportPath) {
+      console.log(`Consolidation review: ${result.consolidationReportPath}`);
+    }
     console.log(`Pruned ${result.prunedEpisodes} episode file${result.prunedEpisodes === 1 ? "" : "s"}.`);
     return;
   }
@@ -477,6 +534,8 @@ function usage() {
   openbrain dream run [--quiet]
   openbrain hook session-start
   openbrain memory add --type <type> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--promoted-from <id>] [--promote-as <type>]
+  openbrain memory update <id> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private]
+  openbrain memory merge <source-id> --into <target-id> --text <text>
   openbrain memory promote <episode-id> --type <type> --text <text>
   openbrain memory search <query> [--type <type>] [--scope <value>] [--confidence low|medium|high] [--durable-only] [--include-private]
   openbrain memory list

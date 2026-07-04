@@ -137,6 +137,8 @@ openbrain memory show <id>
 openbrain memory delete <id>
 openbrain memory search "deploy workflow" --durable-only --type workflow
 openbrain memory add --type episode --promote-as workflow --text "..."
+openbrain memory update <id> --text "..."
+openbrain memory merge <source-id> --into <target-id> --text "..."
 openbrain memory promote <episode-id> --type workflow --text "..."
 openbrain dream run
 openbrain index rebuild
@@ -234,4 +236,6 @@ Set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
 
 The first semantic search in a session is slower because the local embedding model has to load, and on first ever use download into the OpenBrain model cache. Model load has its own budget (`embeddings.loadTimeoutMs`, default 30s) separate from embedding itself (`embeddings.timeoutMs`, default 5s). When embeddings fail or time out, search falls back to SQLite FTS and prints a warning so the degradation is visible.
 
-Dreaming is maintenance-only for now. It prunes expired episodes, rebuilds the retrieval index from Markdown, writes promotion candidate review files, and writes an audit log. It does not invent memories or promote episodes automatically.
+Dreaming is maintenance and review only. It prunes expired episodes, rebuilds the retrieval index from Markdown, writes promotion candidate review files, writes a consolidation review of likely duplicate durable memories, and writes an audit log. It does not invent, promote, merge, or delete memories automatically.
+
+When a new durable memory is highly similar to an existing one of the same type, `memory add` still writes it but reports the likely duplicate and suggests `memory update` so agents fold facts into existing memories instead of accumulating near-copies.

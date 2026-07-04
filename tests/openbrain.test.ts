@@ -20,6 +20,7 @@ import {
   getCurrentBrain,
   initOpenBrain,
   listMemories,
+  mergeMemory,
   promoteMemory,
   pruneEpisodes,
   rebuildIndex,
@@ -29,7 +30,8 @@ import {
   showMemory,
   syncClaudeAgent,
   syncClaudeSettings,
-  syncCodexAgent
+  syncCodexAgent,
+  updateMemory
 } from "../src/openbrain.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
 import { isMemoryType, isStoredMemoryType } from "../src/types.js";
@@ -593,6 +595,142 @@ describe("OpenBrain local storage", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  test("memory update rewrites the body in place and records updatedAt", async () => {
+    const home = await tempHome();
+    const original = await addMemory(
+      { type: "workflow", text: "Deploy with the release checklist." },
+      options(home)
+    );
+
+    const later = { ...options(home), now: () => new Date("2026-06-05T10:00:00.000Z") };
+    const updated = await updateMemory(
+      { id: original.id, text: "Deploy with the release checklist and the smoke-test step." },
+      later
+    );
+
+    expect(updated.id).toBe(original.id);
+    expect(updated.path).toBe(original.path);
+    expect(updated.createdAt).toBe(original.createdAt);
+    expect(updated.metadata.updatedAt).toBe("2026-06-05T10:00:00.000Z");
+
+    const raw = await readFile(original.path, "utf8");
+    expect(raw).toContain("smoke-test step");
+    expect(raw).toContain("updatedAt: 2026-06-05T10:00:00.000Z");
+
+    const results = await searchMemories("smoke-test", options(home));
+    expect(results).toHaveLength(1);
+    expect(results[0]?.id).toBe(original.id);
+    expect(await listMemories(options(home))).toHaveLength(1);
+  });
+
+  test("memory update rejects unknown ids", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    await expect(updateMemory({ id: "missing", text: "nope" }, options(home))).rejects.toThrow(
+      "Memory not found: missing"
+    );
+  });
+
+  test("adding a near-duplicate durable memory reports the existing one", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        return [1, 0, 0];
+      }
+    };
+    const first = await addMemory(
+      { type: "workflow", text: "Always run the release checklist before deploying." },
+      options(home, embedder)
+    );
+
+    const second = await addMemory(
+      { type: "workflow", text: "Run the release checklist prior to every deploy." },
+      options(home, embedder)
+    );
+
+    expect(second.duplicateOf?.id).toBe(first.id);
+    expect(second.duplicateOf?.similarity).toBeCloseTo(1, 5);
+    // Write + notice: the new memory still lands on disk.
+    await expect(readFile(second.path, "utf8")).resolves.toContain("prior to every deploy");
+
+    // A different durable type is not treated as a duplicate.
+    const decision = await addMemory(
+      { type: "decision", text: "We deploy on Tuesdays." },
+      options(home, embedder)
+    );
+    expect(decision.duplicateOf).toBeUndefined();
+
+    // Episodes are exempt: repeated session notes are expected.
+    const episode = await addMemory(
+      { type: "episode", text: "Ran the release checklist again today." },
+      options(home, embedder)
+    );
+    expect(episode.duplicateOf).toBeUndefined();
+  });
+
+  test("memory merge folds the source into the target and deletes the source", async () => {
+    const home = await tempHome();
+    const keep = await addMemory({ type: "workflow", text: "Release via the checklist." }, options(home));
+    const dup = await addMemory({ type: "workflow", text: "Use the checklist to release." }, options(home));
+
+    const merged = await mergeMemory(
+      { sourceId: dup.id, targetId: keep.id, text: "Release via the checklist, including smoke tests." },
+      options(home)
+    );
+
+    expect(merged.id).toBe(keep.id);
+    expect(await listMemories(options(home))).toHaveLength(1);
+    await expect(readFile(dup.path, "utf8")).rejects.toThrow();
+    const results = await searchMemories("smoke tests", options(home));
+    expect(results[0]?.id).toBe(keep.id);
+
+    await expect(
+      mergeMemory({ sourceId: keep.id, targetId: keep.id, text: "same id" }, options(home))
+    ).rejects.toThrow("two different memory ids");
+  });
+
+  test("dream writes a consolidation review of likely duplicate durable memories", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        return [1, 0, 0];
+      }
+    };
+    const first = await addMemory(
+      { type: "workflow", text: "Always run the release checklist before deploying." },
+      options(home, embedder)
+    );
+    const second = await addMemory(
+      { type: "workflow", text: "Run the release checklist prior to every deploy." },
+      options(home, embedder)
+    );
+
+    const result = await dreamRun(options(home, embedder));
+    expect(result.status).toBe("ran");
+    if (result.status !== "ran") {
+      return;
+    }
+    expect(result.consolidationReportPath).toBeDefined();
+    const report = await readFile(result.consolidationReportPath!, "utf8");
+    expect(report).toContain(first.id);
+    expect(report).toContain(second.id);
+    expect(report).toContain(`openbrain memory merge ${second.id} --into ${first.id}`);
+    expect(report).toContain("never merges or deletes");
+  });
+
+  test("dream consolidation review reports no likely duplicates for distinct memories", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Release via the checklist." }, options(home));
+
+    const result = await dreamRun(options(home));
+    if (result.status !== "ran") {
+      throw new Error("expected dream to run");
+    }
+    const report = await readFile(result.consolidationReportPath!, "utf8");
+    expect(report).toContain("No likely duplicates.");
   });
 
   test("does not warn about FTS-only results when embeddings are disabled", async () => {

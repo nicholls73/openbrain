@@ -39,10 +39,12 @@ import type {
   BrainStatus,
   DreamResult,
   DreamRunResult,
+  DuplicateNotice,
   DurableMemoryType,
   EmbeddingProvider,
   MemoryRecord,
   MemoryType,
+  MergeMemoryInput,
   OpenBrainConfig,
   OpenBrainOptions,
   PromoteMemoryInput,
@@ -50,7 +52,8 @@ import type {
   SearchResult,
   SetupInput,
   SetupResult,
-  StoredMemoryType
+  StoredMemoryType,
+  UpdateMemoryInput
 } from "./types.js";
 
 const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
@@ -159,6 +162,11 @@ export async function addBrainPath(
   return { brain: normalizedBrain, path: canonicalPath };
 }
 
+// New durable memories at or above this cosine similarity to an existing
+// memory of the same type are flagged as likely duplicates. The memory is
+// still written; the notice nudges the caller towards memory update instead.
+const DUPLICATE_SIMILARITY = 0.9;
+
 export async function addMemory(
   input: AddMemoryInput,
   options: OpenBrainOptions = {}
@@ -178,9 +186,114 @@ export async function addMemory(
     metadata: memoryMetadataDefaults(input.type, now.toISOString(), config.retentionDays, input.metadata)
   };
 
+  const provider = resolveEmbedder(config, scopedOptions);
+  const entry = await prepareIndexEntry(record, config, provider);
+  const db = await openDatabase(scopedOptions);
+  let duplicateOf: DuplicateNotice | undefined;
+  try {
+    // The embedding is already computed for indexing, so the duplicate check
+    // costs one scan. Episodes are exempt: they are expected to repeat.
+    if (record.type !== "episode" && entry.embedding && !Buffer.isBuffer(entry.embedding)) {
+      duplicateOf = findNearDuplicate(db, record, entry.embedding, now);
+    }
+    await writeFile(record.path, renderMemoryMarkdown(record), "utf8");
+    upsertMemory(db, entry.record, entry.embedding);
+  } finally {
+    db.close();
+  }
+  return duplicateOf ? { ...entry.record, duplicateOf } : entry.record;
+}
+
+function findNearDuplicate(
+  db: Awaited<ReturnType<typeof openDatabase>>,
+  record: MemoryRecord,
+  embedding: ArrayLike<number>,
+  now: Date
+): DuplicateNotice | undefined {
+  let best: DuplicateNotice | undefined;
+  for (const row of allRowsWithEmbeddings(db)) {
+    if (row.id === record.id || row.type !== record.type || row.sensitivity === "private") {
+      continue;
+    }
+    if (row.expires_at && new Date(row.expires_at).getTime() <= now.getTime()) {
+      continue;
+    }
+    const stored = decodeEmbedding(row.embedding);
+    if (!stored || stored.length !== embedding.length) {
+      continue;
+    }
+    const similarity = cosine(embedding, stored);
+    if (similarity >= DUPLICATE_SIMILARITY && (!best || similarity > best.similarity)) {
+      best = { id: row.id, title: row.title, similarity };
+    }
+  }
+  return best;
+}
+
+export async function updateMemory(
+  input: UpdateMemoryInput,
+  options: OpenBrainOptions = {}
+): Promise<MemoryRecord> {
+  const { config, options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
+  let row: IndexedMemoryRow;
+  try {
+    const existing = getMemoryRow(db, input.id);
+    if (!existing) {
+      throw new Error(`Memory not found: ${input.id}`);
+    }
+    row = existing;
+  } finally {
+    db.close();
+  }
+
+  const now = options.now?.() ?? new Date();
+  const record: MemoryRecord = {
+    id: row.id,
+    type: row.type as StoredMemoryType,
+    title: titleFromText(input.text),
+    path: row.path,
+    createdAt: row.created_at,
+    body: input.text.trim(),
+    metadata: memoryMetadataDefaults(row.type as StoredMemoryType, row.created_at, config.retentionDays, {
+      source: input.metadata?.source ?? row.source,
+      scope: input.metadata?.scope ?? row.scope,
+      confidence: input.metadata?.confidence ?? (row.confidence as MemoryRecord["metadata"]["confidence"]),
+      expiresAt: input.metadata?.expiresAt ?? row.expires_at ?? undefined,
+      promotedFrom: row.promoted_from ?? undefined,
+      sensitivity:
+        input.metadata?.sensitivity ?? (row.sensitivity as MemoryRecord["metadata"]["sensitivity"]),
+      promoteAs: (row.promote_as ?? undefined) as MemoryRecord["metadata"]["promoteAs"],
+      updatedAt: now.toISOString()
+    })
+  };
+
   await writeFile(record.path, renderMemoryMarkdown(record), "utf8");
   await indexMemoryRecord(record, scopedOptions);
   return record;
+}
+
+// Fold one durable memory into another: the target gets the merged text, the
+// source is deleted. Meant for acting on the dream consolidation report.
+export async function mergeMemory(input: MergeMemoryInput, options: OpenBrainOptions = {}) {
+  if (input.sourceId === input.targetId) {
+    throw new Error("memory merge requires two different memory ids");
+  }
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions);
+  try {
+    for (const id of [input.sourceId, input.targetId]) {
+      if (!getMemoryRow(db, id)) {
+        throw new Error(`Memory not found: ${id}`);
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  const updated = await updateMemory({ id: input.targetId, text: input.text }, scopedOptions);
+  await deleteMemory(input.sourceId, scopedOptions);
+  return updated;
 }
 
 export async function promoteMemory(input: PromoteMemoryInput, options: OpenBrainOptions = {}) {
@@ -773,7 +886,8 @@ async function performDream(options: OpenBrainOptions, brain: string, now: Date)
   const pruned = await pruneEpisodes(options);
   await rebuildIndex(options);
   const promotionCandidatesPath = await writePromotionCandidates(date, now, options, config.retentionDays);
-  const logPath = await uniqueDreamLogPath(date, now, options);
+  const consolidationReportPath = await writeConsolidationReport(date, now, options);
+  const logPath = await uniqueDreamFilePath("dream", date, now, options);
   const result: DreamRunResult = {
     brain,
     status: "ran",
@@ -781,7 +895,8 @@ async function performDream(options: OpenBrainOptions, brain: string, now: Date)
     prunedEpisodes: pruned.length,
     rebuiltIndex: true,
     logPath,
-    promotionCandidatesPath
+    promotionCandidatesPath,
+    consolidationReportPath
   };
   await writeFile(logPath, renderDreamLog(result, now), "utf8");
   await writeDreamState(
@@ -822,20 +937,9 @@ function dreamStatePath(options: OpenBrainOptions) {
   return path.join(dreamsDir(options), "state.json");
 }
 
-async function uniqueDreamLogPath(date: string, now: Date, options: OpenBrainOptions) {
+async function uniqueDreamFilePath(kind: string, date: string, now: Date, options: OpenBrainOptions) {
   const timestamp = now.toISOString().replace(/[:.]/g, "-");
-  const base = path.join(dreamsDir(options), `${date}-${timestamp}-dream`);
-  let candidate = `${base}.md`;
-  let suffix = 2;
-  while (await exists(candidate)) {
-    candidate = `${base}-${suffix++}.md`;
-  }
-  return candidate;
-}
-
-async function uniquePromotionCandidatesPath(date: string, now: Date, options: OpenBrainOptions) {
-  const timestamp = now.toISOString().replace(/[:.]/g, "-");
-  const base = path.join(dreamsDir(options), `${date}-${timestamp}-promotion-candidates`);
+  const base = path.join(dreamsDir(options), `${date}-${timestamp}-${kind}`);
   let candidate = `${base}.md`;
   let suffix = 2;
   while (await exists(candidate)) {
@@ -855,13 +959,15 @@ function renderDreamLog(result: DreamRunResult, now: Date) {
       `- prunedEpisodes: ${result.prunedEpisodes}`,
       `- rebuiltIndex: ${result.rebuiltIndex}`,
       `- promotionCandidates: ${result.promotionCandidatesPath ?? "none"}`,
+      `- consolidationReport: ${result.consolidationReportPath ?? "none"}`,
       "",
       "Maintenance performed:",
       "",
       "- Pruned expired episode files.",
       "- Rebuilt the SQLite retrieval index from Markdown.",
       "- Wrote promotion candidates for human or agent review.",
-      "- Did not create new memories."
+      "- Wrote a consolidation review of likely duplicate durable memories.",
+      "- Did not create, merge, or delete memories."
     ].join("\n") + "\n"
   );
 }
@@ -876,7 +982,7 @@ async function writePromotionCandidates(
     (await markdownFiles(episodesDir(options))).map((filePath) => parseMemoryFile(filePath, retentionDays))
   );
   const candidates = records.filter((record) => record.type === "episode" && record.metadata.promoteAs);
-  const target = await uniquePromotionCandidatesPath(date, now, options);
+  const target = await uniqueDreamFilePath("promotion-candidates", date, now, options);
   await writeFile(target, renderPromotionCandidates(candidates), "utf8");
   return target;
 }
@@ -909,6 +1015,112 @@ function renderPromotionCandidates(candidates: MemoryRecord[]) {
   }
 
   return lines.join("\n") + "\n";
+}
+
+interface ConsolidationGroup {
+  similarity: number;
+  rows: IndexedMemoryRow[];
+}
+
+// Dream proposes, the agent or human disposes: the report lists likely
+// duplicate durable memories with ready-to-run commands, and dream itself
+// never merges or deletes anything.
+async function writeConsolidationReport(date: string, now: Date, options: OpenBrainOptions) {
+  const db = await openDatabase(options);
+  let groups: ConsolidationGroup[];
+  try {
+    groups = findConsolidationGroups(db, now);
+  } finally {
+    db.close();
+  }
+  const target = await uniqueDreamFilePath("consolidation", date, now, options);
+  await writeFile(target, renderConsolidationReport(groups), "utf8");
+  return target;
+}
+
+function findConsolidationGroups(db: Awaited<ReturnType<typeof openDatabase>>, now: Date) {
+  const rows = allRowsWithEmbeddings(db).filter(
+    (row) =>
+      row.type !== "episode" &&
+      row.sensitivity !== "private" &&
+      !(row.expires_at && new Date(row.expires_at).getTime() <= now.getTime())
+  );
+  const embeddings = rows.map((row) => decodeEmbedding(row.embedding));
+
+  // Greedy clustering over pairwise cosine similarity. Durable memory counts
+  // are small (hundreds), so the O(n^2) scan is fine and keeps this free of
+  // extra dependencies.
+  const groupOf = new Map<number, number>();
+  const groups: ConsolidationGroup[] = [];
+  for (let left = 0; left < rows.length; left++) {
+    const leftEmbedding = embeddings[left];
+    if (!leftEmbedding) {
+      continue;
+    }
+    for (let right = left + 1; right < rows.length; right++) {
+      const rightEmbedding = embeddings[right];
+      if (!rightEmbedding || rows[left]!.type !== rows[right]!.type) {
+        continue;
+      }
+      if (leftEmbedding.length !== rightEmbedding.length) {
+        continue;
+      }
+      const similarity = cosine(leftEmbedding, rightEmbedding);
+      if (similarity < DUPLICATE_SIMILARITY) {
+        continue;
+      }
+      const existing = groupOf.get(left);
+      if (existing === undefined) {
+        groupOf.set(left, groups.length);
+        groupOf.set(right, groups.length);
+        groups.push({ similarity, rows: [rows[left]!, rows[right]!] });
+      } else if (!groupOf.has(right)) {
+        groupOf.set(right, existing);
+        const group = groups[existing]!;
+        group.rows.push(rows[right]!);
+        group.similarity = Math.max(group.similarity, similarity);
+      }
+    }
+  }
+  return groups;
+}
+
+function renderConsolidationReport(groups: ConsolidationGroup[]) {
+  const lines = [
+    "# Consolidation review",
+    "",
+    "Durable memories of the same type whose embeddings are highly similar.",
+    "Review each group: they may be duplicates to merge, or contradictions to",
+    "resolve with an update. Dream never merges or deletes memories itself.",
+    ""
+  ];
+
+  if (!groups.length) {
+    lines.push("No likely duplicates.");
+    return `${lines.join("\n")}\n`;
+  }
+
+  groups.forEach((group, index) => {
+    const keep = group.rows[0]!;
+    const others = group.rows.slice(1);
+    lines.push(`## Group ${index + 1} (similarity ${group.similarity.toFixed(2)})`);
+    lines.push("");
+    for (const row of group.rows) {
+      lines.push(`- [${row.id}] ${row.title}`);
+    }
+    lines.push("");
+    lines.push("```bash");
+    for (const row of group.rows) {
+      lines.push(`openbrain memory show ${row.id}`);
+    }
+    for (const other of others) {
+      lines.push(`openbrain memory merge ${other.id} --into ${keep.id} --text "<merged durable memory>"`);
+    }
+    lines.push("```");
+    lines.push("");
+  });
+
+  return `${lines.join("\n")}\n`;
 }
 
 function localDateString(value: Date) {
@@ -1122,6 +1334,17 @@ openbrain memory add --type episode --promote-as workflow --text "..."
 openbrain memory promote <episode-id> --type workflow --text "..."
 \`\`\`
 
+When an existing memory is outdated or a search result already covers the same
+fact, revise it instead of adding a near-duplicate:
+
+\`\`\`bash
+openbrain memory update <id> --text "..."
+openbrain memory merge <source-id> --into <target-id> --text "..."
+\`\`\`
+
+If \`memory add\` reports a possible duplicate, follow its suggestion: fold the
+fact into the existing memory with \`memory update\` and delete the new copy.
+
 Record durable memories only when the guidance is likely to stay useful across
 future tasks. Prefer principles, preferences, repeated workflows, stable
 workspace conventions, and durable decisions. Do not store branch names, PR
@@ -1146,6 +1369,10 @@ Use metadata only when it materially helps retrieval or review:
 Dream writes promotion candidate review files for episodes marked with
 \`--promote-as\`. Review source text before running \`openbrain memory promote\`.
 Do not promote automatically.
+
+Dream also writes a consolidation review of likely duplicate durable memories
+with ready-to-run merge commands. Review the memories before merging; never
+merge automatically.
 
 For POC or reference work, classify details before storing them. Keep the
 reusable rule, such as how to separate UI, calculation, data contract, fixture,
