@@ -168,6 +168,14 @@ export interface PromoteMemoryInput {
   text: string;
 }
 
+// A dream-written review file awaiting agent action. Pending means the file
+// still sits in the dreams directory; actioned reviews are moved aside by
+// "openbrain review done".
+export interface PendingReview {
+  path: string;
+  kind: "promotion-candidates" | "consolidation";
+}
+
 export interface DreamRunResult {
   brain: string;
   status: "ran";

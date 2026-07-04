@@ -10,6 +10,8 @@ import {
   getCurrentBrain,
   initOpenBrain,
   listMemories,
+  listPendingReviews,
+  markReviewDone,
   mergeMemory,
   promoteMemory,
   pruneEpisodes,
@@ -100,6 +102,11 @@ async function main(argv: string[]) {
     return;
   }
 
+  if (area === "review") {
+    await reviewCommand(command, rest);
+    return;
+  }
+
   if (area === "doctor") {
     const report = await runDoctor();
     console.log(renderDoctorReport(report));
@@ -118,6 +125,32 @@ async function main(argv: string[]) {
   if (area === "prune") {
     const pruned = await pruneEpisodes();
     console.log(`Pruned ${pruned.length} episode file${pruned.length === 1 ? "" : "s"}.`);
+    return;
+  }
+
+  usage();
+}
+
+async function reviewCommand(command: string | undefined, args: string[]) {
+  if (command === "list") {
+    const pending = await listPendingReviews();
+    if (!pending.length) {
+      console.log("No pending reviews.");
+      return;
+    }
+    for (const review of pending) {
+      console.log(`${review.kind}\t${review.path}`);
+    }
+    return;
+  }
+
+  if (command === "done") {
+    const file = args[0];
+    if (!file) {
+      throw new Error("review done requires a review file path");
+    }
+    const target = await markReviewDone(file);
+    console.log(`Marked review as actioned: ${target}`);
     return;
   }
 
@@ -553,6 +586,8 @@ function usage() {
   openbrain memory delete <id>
   openbrain brain current
   openbrain brain add-path <brain> [path]
+  openbrain review list
+  openbrain review done <file>
   openbrain doctor
   openbrain index rebuild
   openbrain prune`);
