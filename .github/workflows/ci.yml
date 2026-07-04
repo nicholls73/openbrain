@@ -26,3 +26,21 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm test
+
+  embeddings-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/openbrain-real-embeddings
+          key: embedding-model-${{ hashFiles('src/config.ts') }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run tests/embeddings-real.test.ts
+        env:
+          OPENBRAIN_REAL_EMBEDDINGS: "1"
