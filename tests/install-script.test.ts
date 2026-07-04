@@ -36,6 +36,17 @@ describe("install script", () => {
     expect(stdout).toContain("curl -fsSL");
     expect(stdout).toContain("OPENBRAIN_INSTALL_DIR");
     expect(stdout).toContain("openbrain setup");
+    expect(stdout).toContain("latest release");
+    expect(stdout).toContain("SHA-256");
+  });
+
+  test("verifies release checksums and treats non-release refs as unverified", async () => {
+    const script = await readFile(path.join(repoRoot, "scripts", "install.sh"), "utf8");
+
+    expect(script).toContain("releases/download");
+    expect(script).toContain("checksum mismatch");
+    expect(script).toContain("latest_release_tag");
+    expect(script).toContain("installing it unverified");
   });
 
   test("installs from a local source directory and creates an openbrain executable", async () => {

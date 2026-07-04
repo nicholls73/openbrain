@@ -2,7 +2,8 @@
 set -euo pipefail
 
 OPENBRAIN_REPO_URL="${OPENBRAIN_REPO_URL:-https://github.com/nicholls73/openbrain}"
-OPENBRAIN_REF="${OPENBRAIN_REF:-main}"
+# Empty means: resolve to the latest published release at install time.
+OPENBRAIN_REF="${OPENBRAIN_REF:-}"
 OPENBRAIN_INSTALL_DIR="${OPENBRAIN_INSTALL_DIR:-$HOME/.local/share/openbrain/app}"
 OPENBRAIN_BIN_DIR="${OPENBRAIN_BIN_DIR:-$HOME/.local/bin}"
 OPENBRAIN_SOURCE_DIR="${OPENBRAIN_SOURCE_DIR:-}"
@@ -15,7 +16,9 @@ Install:
   curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash
 
 Environment:
-  OPENBRAIN_REF          Git ref to install. Default: main
+  OPENBRAIN_REF          Git ref to install. Default: the latest release, with
+                         its SHA-256 checksum verified. Branch or tag refs
+                         without release assets install unverified.
   OPENBRAIN_REPO_URL     GitHub repository URL. Default: https://github.com/nicholls73/openbrain
   OPENBRAIN_INSTALL_DIR  Install location. Default: ~/.local/share/openbrain/app
   OPENBRAIN_BIN_DIR      Directory for the openbrain executable. Default: ~/.local/bin
@@ -85,23 +88,104 @@ copy_local_source() {
     -cf - . | tar -C "$install_dir" -xf -
 }
 
-download_source() {
-  local install_dir="$1"
-  local archive_url="${OPENBRAIN_REPO_URL}/archive/refs/heads/${OPENBRAIN_REF}.tar.gz"
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
+repo_slug() {
+  printf '%s' "${OPENBRAIN_REPO_URL#https://github.com/}"
+}
 
-  rm -rf "$install_dir"
-  mkdir -p "$install_dir"
+latest_release_tag() {
+  curl -fsSL "https://api.github.com/repos/$(repo_slug)/releases/latest" 2>/dev/null |
+    grep -m1 '"tag_name"' |
+    sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true
+}
 
-  log "downloading ${archive_url}"
-  curl -fsSL "$archive_url" -o "$tmp_dir/openbrain.tar.gz"
-  tar -xzf "$tmp_dir/openbrain.tar.gz" -C "$tmp_dir"
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+extract_archive() {
+  local tarball="$1"
+  local install_dir="$2"
+  local tmp_dir="$3"
+
+  tar -xzf "$tarball" -C "$tmp_dir"
   local extracted
   extracted="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d -name 'openbrain-*' | head -n 1)"
   [[ -n "$extracted" ]] || fail "could not find extracted OpenBrain source."
+  rm -rf "$install_dir"
+  mkdir -p "$install_dir"
   tar -C "$extracted" -cf - . | tar -C "$install_dir" -xf -
+}
+
+# Install a published release: download the release tarball and its checksum
+# from the release assets and refuse to install on mismatch. Returns non-zero
+# when the ref has no release assets (e.g. a branch).
+download_release() {
+  local tag="$1"
+  local install_dir="$2"
+  local base="${OPENBRAIN_REPO_URL}/releases/download/${tag}"
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+
+  log "downloading release ${tag}"
+  if ! curl -fsSL "${base}/openbrain-${tag}.tar.gz" -o "$tmp_dir/openbrain.tar.gz" ||
+    ! curl -fsSL "${base}/openbrain-${tag}.tar.gz.sha256" -o "$tmp_dir/openbrain.tar.gz.sha256"; then
+    rm -rf "$tmp_dir"
+    return 1
+  fi
+
+  local expected actual
+  expected="$(awk '{print $1}' "$tmp_dir/openbrain.tar.gz.sha256")"
+  actual="$(sha256_of "$tmp_dir/openbrain.tar.gz")"
+  if [[ -z "$expected" || "$expected" != "$actual" ]]; then
+    rm -rf "$tmp_dir"
+    fail "checksum mismatch for release ${tag}: expected '${expected}', got '${actual}'"
+  fi
+  log "checksum verified: ${actual}"
+
+  extract_archive "$tmp_dir/openbrain.tar.gz" "$install_dir" "$tmp_dir"
   rm -rf "$tmp_dir"
+}
+
+# Unverified fallback for refs without release assets. The generic archive
+# endpoint accepts branches, tags, and commit SHAs.
+download_ref() {
+  local ref="$1"
+  local install_dir="$2"
+  local archive_url="${OPENBRAIN_REPO_URL}/archive/${ref}.tar.gz"
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+
+  log "downloading ${archive_url}"
+  curl -fsSL "$archive_url" -o "$tmp_dir/openbrain.tar.gz"
+  extract_archive "$tmp_dir/openbrain.tar.gz" "$install_dir" "$tmp_dir"
+  rm -rf "$tmp_dir"
+}
+
+download_source() {
+  local install_dir="$1"
+
+  if [[ -n "$OPENBRAIN_REF" ]]; then
+    if download_release "$OPENBRAIN_REF" "$install_dir"; then
+      return
+    fi
+    log "warning: ${OPENBRAIN_REF} has no release assets to verify; installing it unverified"
+    download_ref "$OPENBRAIN_REF" "$install_dir"
+    return
+  fi
+
+  local tag
+  tag="$(latest_release_tag)"
+  if [[ -n "$tag" ]]; then
+    download_release "$tag" "$install_dir" || fail "failed to download release ${tag}"
+    return
+  fi
+
+  log "warning: no published release found; installing unverified main branch"
+  download_ref "main" "$install_dir"
 }
 
 install_openbrain() {

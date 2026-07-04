@@ -51,6 +51,8 @@ Install OpenBrain from GitHub:
 curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash
 ```
 
+The installer resolves the latest published release and verifies its SHA-256 checksum before installing. Set `OPENBRAIN_REF` to install a specific release, branch, or commit; refs without release assets install unverified.
+
 If `openbrain` is not found after install, add the default bin directory to your shell profile:
 
 ```bash
