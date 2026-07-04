@@ -29,8 +29,22 @@ export interface IndexedMemoryRow {
 // Embeddings are stored as raw little-endian float32 blobs. The previous JSON
 // text encoding cost a JSON.parse per row on every vector search and roughly
 // 5x the storage.
-export function encodeEmbedding(embedding: number[] | null): Buffer | null {
-  return embedding ? Buffer.from(new Float32Array(embedding).buffer) : null;
+export function encodeEmbedding(embedding: number[] | Buffer | null): Buffer | null {
+  if (!embedding) {
+    return null;
+  }
+  return Buffer.isBuffer(embedding) ? embedding : Buffer.from(new Float32Array(embedding).buffer);
+}
+
+// Convert a stored embedding (blob or legacy JSON text) back into its blob
+// encoding without a decode/re-encode round trip for blobs. Used when an
+// index rebuild reuses the stored embedding of an unchanged memory.
+export function reencodeEmbedding(value: Buffer | string | null): Buffer | null {
+  if (value == null || Buffer.isBuffer(value)) {
+    return value;
+  }
+  const decoded = decodeEmbedding(value);
+  return decoded ? Buffer.from(new Float32Array(decoded).buffer) : null;
 }
 
 export function decodeEmbedding(value: Buffer | string | null): ArrayLike<number> | null {
@@ -131,7 +145,7 @@ export function isSqliteNodeAbiMismatch(error: unknown) {
   return message.includes("NODE_MODULE_VERSION") && message.includes("better_sqlite3.node");
 }
 
-export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding: number[] | null) {
+export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding: number[] | Buffer | null) {
   const now = new Date().toISOString();
   db.prepare(
     `

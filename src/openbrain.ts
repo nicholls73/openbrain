@@ -12,6 +12,7 @@ import {
   getMemoryRow,
   listMemoryRows,
   openDatabase,
+  reencodeEmbedding,
   upsertMemory
 } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
@@ -354,6 +355,22 @@ export async function deleteMemory(id: string, options: OpenBrainOptions = {}) {
 export async function rebuildIndex(options: OpenBrainOptions = {}) {
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
 
+  // Reuse stored embeddings for memories whose title and body are unchanged,
+  // so routine rebuilds (the daily dream fired from session-start hooks) do
+  // not re-embed the whole brain. Only new or edited files, and files whose
+  // previous embedding failed, pay the embedding cost.
+  const stored = new Map<string, IndexedMemoryRow>();
+  {
+    const db = await openDatabase(scopedOptions);
+    try {
+      for (const row of allRowsWithEmbeddings(db)) {
+        stored.set(row.id, row);
+      }
+    } finally {
+      db.close();
+    }
+  }
+
   // Parse and embed everything before touching the database. Embedding is the
   // slow part; doing it up front keeps the write transaction below brief. The
   // provider is built once and reused so the local embedding model is not
@@ -363,6 +380,19 @@ export async function rebuildIndex(options: OpenBrainOptions = {}) {
   let embedFailures = 0;
   for (const filePath of await memoryFiles(scopedOptions)) {
     const record = await parseMemoryFile(filePath, config.retentionDays);
+    const prior = stored.get(record.id);
+    if (
+      record.metadata.sensitivity !== "private" &&
+      prior &&
+      prior.title === record.title &&
+      prior.body === record.body
+    ) {
+      const reused = reencodeEmbedding(prior.embedding);
+      if (reused) {
+        entries.push({ record, embedding: reused });
+        continue;
+      }
+    }
     const entry = await prepareIndexEntry(record, config, provider);
     if (!entry.embedding && !provider.disabled && entry.record.metadata.sensitivity !== "private") {
       embedFailures += 1;
@@ -620,7 +650,7 @@ async function syncInstructionFile(dir: string, fileName: string, options: OpenB
 
 interface IndexEntry {
   record: MemoryRecord;
-  embedding: number[] | null;
+  embedding: number[] | Buffer | null;
 }
 
 async function prepareIndexEntry(
