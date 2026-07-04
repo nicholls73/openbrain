@@ -5,7 +5,9 @@ export function createEmbeddingProvider(
   config: OpenBrainConfig,
   options: OpenBrainOptions = {}
 ): EmbeddingProvider {
-  if (!config.embeddings.enabled || process.env.VITEST) {
+  // Unit tests get the disabled provider so they never load the real model;
+  // OPENBRAIN_REAL_EMBEDDINGS=1 opts the dedicated integration test back in.
+  if (!config.embeddings.enabled || (process.env.VITEST && process.env.OPENBRAIN_REAL_EMBEDDINGS !== "1")) {
     return disabledEmbeddingProvider();
   }
 
