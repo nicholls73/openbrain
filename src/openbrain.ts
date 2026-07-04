@@ -235,7 +235,20 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
     fuse(filterRows(ftsSearch(db, toFtsQuery(query), searchLimit)).slice(0, limit), "fts");
 
     const provider = resolveEmbedder(config, options);
-    const queryEmbedding = await embedWithTimeout(provider, query, config.embeddings.timeoutMs);
+    const queryEmbedding = await embedWithTimeout(
+      provider,
+      query,
+      config.embeddings.timeoutMs,
+      config.embeddings.loadTimeoutMs
+    );
+    if (!queryEmbedding && !provider.disabled) {
+      // Degrading to FTS-only used to be silent, which made semantic search
+      // look enabled while it never actually ran.
+      console.warn(
+        "openbrain: embedding the query failed or timed out; results are FTS-only. " +
+          "A first search may still be downloading the local embedding model."
+      );
+    }
     if (queryEmbedding) {
       // Stored embeddings whose length differs from the current model's output
       // can never match (cosine returns 0). That used to be silent, so swapping
@@ -343,9 +356,21 @@ export async function rebuildIndex(options: OpenBrainOptions = {}) {
   // reloaded per file.
   const provider = resolveEmbedder(config, scopedOptions);
   const entries: IndexEntry[] = [];
+  let embedFailures = 0;
   for (const filePath of await memoryFiles(scopedOptions)) {
     const record = await parseMemoryFile(filePath, config.retentionDays);
-    entries.push(await prepareIndexEntry(record, config, provider));
+    const entry = await prepareIndexEntry(record, config, provider);
+    if (!entry.embedding && !provider.disabled && entry.record.metadata.sensitivity !== "private") {
+      embedFailures += 1;
+    }
+    entries.push(entry);
+  }
+  if (embedFailures > 0) {
+    console.warn(
+      `openbrain: ${embedFailures} memor${embedFailures === 1 ? "y was" : "ies were"} indexed without ` +
+        `embeddings (embedding failed or timed out). Semantic search will not match them; run ` +
+        `"openbrain index rebuild" once the model is available.`
+    );
   }
 
   // Clear + reinsert in one transaction on one connection. Other agents'
@@ -609,7 +634,8 @@ async function prepareIndexEntry(
       : await embedWithTimeout(
           provider,
           `${normalized.title}\n\n${normalized.body}`,
-          config.embeddings.timeoutMs
+          config.embeddings.timeoutMs,
+          config.embeddings.loadTimeoutMs
         );
   return { record: normalized, embedding };
 }

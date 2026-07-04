@@ -173,7 +173,8 @@ Example `~/.openbrain/config.json`:
     "enabled": true,
     "model": "sentence-transformers/all-MiniLM-L6-v2",
     "dimensions": 384,
-    "timeoutMs": 5000
+    "timeoutMs": 5000,
+    "loadTimeoutMs": 30000
   },
   "retrieval": {
     "limit": 5
@@ -229,6 +230,6 @@ Set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
 
 ## Notes
 
-The first semantic search can be slower because the local embedding model has to load and may need to download into the OpenBrain model cache. Search falls back to SQLite FTS when embeddings are unavailable.
+The first semantic search in a session is slower because the local embedding model has to load, and on first ever use download into the OpenBrain model cache. Model load has its own budget (`embeddings.loadTimeoutMs`, default 30s) separate from embedding itself (`embeddings.timeoutMs`, default 5s). When embeddings fail or time out, search falls back to SQLite FTS and prints a warning so the degradation is visible.
 
 Dreaming is maintenance-only for now. It prunes expired episodes, rebuilds the retrieval index from Markdown, writes promotion candidate review files, and writes an audit log. It does not invent memories or promote episodes automatically.

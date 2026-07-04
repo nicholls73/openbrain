@@ -14,35 +14,55 @@ export function createEmbeddingProvider(
 
 export function disabledEmbeddingProvider(): EmbeddingProvider {
   return {
+    disabled: true,
     async embed() {
       return null;
     }
   };
 }
 
-export async function embedWithTimeout(
-  provider: EmbeddingProvider,
-  text: string,
-  timeoutMs: number
-): Promise<number[] | null> {
+const TIMED_OUT = Symbol("timed-out");
+
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      provider.embed(text),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), timeoutMs);
-        // Do not let a pending embedding timeout keep the CLI process alive.
+      work,
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), ms);
+        // Do not let a pending timeout keep the CLI process alive.
         timer.unref();
       })
     ]);
-  } catch {
-    return null;
   } finally {
-    // When embedding wins the race, cancel the still-pending timer so it does
-    // not fire (and hold the event loop) for the rest of timeoutMs.
+    // When the work wins the race, cancel the still-pending timer so it does
+    // not fire (and hold the event loop) for the rest of the budget.
     if (timer) {
       clearTimeout(timer);
     }
+  }
+}
+
+export async function embedWithTimeout(
+  provider: EmbeddingProvider,
+  text: string,
+  timeoutMs: number,
+  loadTimeoutMs = timeoutMs
+): Promise<number[] | null> {
+  try {
+    // The first call in a process loads (and on first ever use, downloads)
+    // the local model. That gets its own, larger budget: a single budget for
+    // load + embed meant every fresh CLI invocation lost most of it to the
+    // cold start and silently degraded search to FTS-only.
+    if (provider.ready) {
+      if ((await withTimeout(provider.ready(), loadTimeoutMs)) === TIMED_OUT) {
+        return null;
+      }
+    }
+    const embedding = await withTimeout(provider.embed(text), timeoutMs);
+    return embedding === TIMED_OUT ? null : embedding;
+  } catch {
+    return null;
   }
 }
 
@@ -53,6 +73,10 @@ class TransformersEmbeddingProvider implements EmbeddingProvider {
     private readonly config: OpenBrainConfig,
     private readonly options: OpenBrainOptions
   ) {}
+
+  async ready() {
+    await this.getExtractor();
+  }
 
   async embed(text: string) {
     const extractor = await this.getExtractor();

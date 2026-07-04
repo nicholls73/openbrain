@@ -30,6 +30,7 @@ export interface OpenBrainConfig {
     model: string;
     dimensions: number;
     timeoutMs: number;
+    loadTimeoutMs: number;
   };
   retrieval: {
     limit: number;
@@ -46,6 +47,12 @@ export interface OpenBrainConfig {
 
 export interface EmbeddingProvider {
   embed(text: string): Promise<number[] | null>;
+  // Resolves once the provider can embed without further setup. Model load
+  // and download happen here, budgeted separately from embedding itself.
+  ready?(): Promise<void>;
+  // True for the no-op provider used when embeddings are turned off, so
+  // callers can tell "intentionally disabled" apart from "failed".
+  disabled?: boolean;
 }
 
 export interface OpenBrainOptions {
