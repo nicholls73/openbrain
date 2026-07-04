@@ -16,6 +16,7 @@ import {
   deleteMemory,
   dreamMaybe,
   dreamRun,
+  getBrainStatus,
   getCurrentBrain,
   initOpenBrain,
   listMemories,
@@ -231,6 +232,34 @@ describe("OpenBrain local storage", () => {
 
     await addBrainPath("alpha", projectPath, options(home));
     expect(await getCurrentBrain({ ...options(home), cwd: projectPath })).toBe("alpha");
+  });
+
+  test("getBrainStatus reports a typed state instead of a delimited string", async () => {
+    const home = await tempHome();
+    const projectPath = path.join(home, "new-project");
+    await initOpenBrain(options(home));
+
+    expect(await getBrainStatus(options(home))).toEqual({ brain: "main", state: "active" });
+
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "ask", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+    expect(await getBrainStatus({ ...options(home), cwd: projectPath })).toEqual({
+      brain: "main",
+      state: "ask"
+    });
+
+    await writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ brains: { default: "main", unmatched: "disabled", pathRules: [] } }, null, 2),
+      "utf8"
+    );
+    expect(await getBrainStatus({ ...options(home), cwd: projectPath })).toEqual({
+      brain: "main",
+      state: "disabled"
+    });
   });
 
   test("concurrent path rule additions do not lose config writes", async () => {

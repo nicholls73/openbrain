@@ -55,6 +55,15 @@ export interface EmbeddingProvider {
   disabled?: boolean;
 }
 
+// Resolution of the current workspace path to a memory container.
+// "active": the brain is usable. "ask": no rule matched and the config says
+// to ask which brain owns the path. "disabled": no rule matched and OpenBrain
+// is off for unmatched paths.
+export interface BrainStatus {
+  brain: string;
+  state: "active" | "ask" | "disabled";
+}
+
 export interface OpenBrainOptions {
   home?: string;
   codexHome?: string;
