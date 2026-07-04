@@ -12,6 +12,7 @@ export interface MemoryMetadata {
   promotedFrom?: string;
   sensitivity: MemorySensitivity;
   promoteAs?: DurableMemoryType;
+  updatedAt?: string;
 }
 
 export interface OpenBrainConfig {
@@ -111,7 +112,30 @@ export interface MemoryRecord {
   metadata: MemoryMetadata;
 }
 
-export interface AddMemoryResult extends MemoryRecord {}
+// Reported when a new durable memory scores above the duplicate-similarity
+// threshold against an existing memory of the same type. The memory is still
+// written; the notice tells the caller to consider updating instead.
+export interface DuplicateNotice {
+  id: string;
+  title: string;
+  similarity: number;
+}
+
+export interface AddMemoryResult extends MemoryRecord {
+  duplicateOf?: DuplicateNotice;
+}
+
+export interface UpdateMemoryInput {
+  id: string;
+  text: string;
+  metadata?: Partial<MemoryMetadata>;
+}
+
+export interface MergeMemoryInput {
+  sourceId: string;
+  targetId: string;
+  text: string;
+}
 
 export interface SearchResult {
   id: string;
@@ -152,6 +176,7 @@ export interface DreamRunResult {
   rebuiltIndex: boolean;
   logPath: string;
   promotionCandidatesPath?: string;
+  consolidationReportPath?: string;
 }
 
 export interface DreamSkippedResult {
