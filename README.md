@@ -59,6 +59,14 @@ If `openbrain` is not found after install, add the default bin directory to your
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+Verify the whole installation at any time with:
+
+```bash
+openbrain doctor
+```
+
+It checks the Node version, installed vs latest version, config, brain routing for the current path, the SQLite index against the Markdown files, embeddings, agent adapters, the Claude hook, and PATH, and prints a fix for anything that is off.
+
 ## First Run Manually
 
 Run guided setup:
@@ -131,6 +139,7 @@ The durable memory should usually be the reusable rule, not the copied constant 
 Useful inspection and maintenance commands:
 
 ```bash
+openbrain doctor
 openbrain brain current
 openbrain memory list
 openbrain memory show <id>
