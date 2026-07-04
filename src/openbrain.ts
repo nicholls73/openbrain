@@ -36,6 +36,7 @@ import {
 import type {
   AddMemoryInput,
   AddMemoryResult,
+  BrainStatus,
   DreamResult,
   DreamRunResult,
   DurableMemoryType,
@@ -111,9 +112,19 @@ export async function setupOpenBrain(
   };
 }
 
-export async function getCurrentBrain(options: OpenBrainOptions = {}) {
+export async function getBrainStatus(options: OpenBrainOptions = {}): Promise<BrainStatus> {
   const { resolution } = await prepareOpenBrain(options, { allowUnavailable: true });
-  return resolution.enabled ? resolution.brain : `${resolution.unmatched}:${resolution.brain}`;
+  if (resolution.enabled) {
+    return { brain: resolution.brain, state: "active" };
+  }
+  return { brain: resolution.brain, state: resolution.unmatched === "ask" ? "ask" : "disabled" };
+}
+
+// Human/CLI-facing rendering of getBrainStatus. Programmatic callers should
+// use getBrainStatus instead of parsing this string.
+export async function getCurrentBrain(options: OpenBrainOptions = {}) {
+  const status = await getBrainStatus(options);
+  return status.state === "active" ? status.brain : `${status.state}:${status.brain}`;
 }
 
 export async function addBrainPath(
@@ -577,9 +588,9 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
 export async function runSessionStartHook(options: OpenBrainOptions = {}): Promise<string> {
   const cwd = options.cwd ?? process.cwd();
 
-  let brain: string;
+  let status: BrainStatus;
   try {
-    brain = await getCurrentBrain(options);
+    status = await getBrainStatus(options);
   } catch {
     // Resolution itself failed; give safe guidance without claiming memory works.
     return [
@@ -588,17 +599,14 @@ export async function runSessionStartHook(options: OpenBrainOptions = {}): Promi
     ].join("\n");
   }
 
-  // getCurrentBrain returns "<unmatched>:<brain>" when the path is not bound to
-  // an enabled brain. unmatched is "ask" or "disabled"; "default" resolves as
-  // enabled. Brain names cannot contain ":", so the prefix check is safe.
-  if (brain.startsWith("ask:")) {
+  if (status.state === "ask") {
     return [
       "OpenBrain has no brain assigned to this workspace path.",
       `Ask the user which brain should own this path, then run: openbrain brain add-path <brain> "${cwd}"`,
       "Do not search or record memory until a brain is assigned."
     ].join("\n");
   }
-  if (brain.startsWith("disabled:")) {
+  if (status.state === "disabled") {
     return [
       "OpenBrain is disabled for this workspace path.",
       "Skip memory search and recording for this session."
@@ -613,7 +621,7 @@ export async function runSessionStartHook(options: OpenBrainOptions = {}): Promi
     // Dreaming is best-effort. Swallow so the session always starts.
   }
   return [
-    `OpenBrain memory is active (brain: ${brain}).`,
+    `OpenBrain memory is active (brain: ${status.brain}).`,
     `Before starting a task, run: openbrain memory search "<short description of the task>" and use only relevant results.`,
     `After meaningful work, record durable memories with: openbrain memory add --type <preference|workflow|workspace|decision|episode> --text "...".`,
     `Daily dreaming has already been handled for this session.`
