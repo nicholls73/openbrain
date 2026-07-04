@@ -40,6 +40,7 @@ import type {
   EmbeddingProvider,
   MemoryRecord,
   MemoryType,
+  OpenBrainConfig,
   OpenBrainOptions,
   PromoteMemoryInput,
   SearchMemoriesOptions,
@@ -334,19 +335,31 @@ export async function deleteMemory(id: string, options: OpenBrainOptions = {}) {
 
 export async function rebuildIndex(options: OpenBrainOptions = {}) {
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
-  const db = await openDatabase(scopedOptions);
-  try {
-    clearIndex(db);
-  } finally {
-    db.close();
-  }
 
-  // Build the embedder once and reuse it for every file. Creating a provider
-  // per file would reload the local embedding model on each iteration.
+  // Parse and embed everything before touching the database. Embedding is the
+  // slow part; doing it up front keeps the write transaction below brief. The
+  // provider is built once and reused so the local embedding model is not
+  // reloaded per file.
   const provider = resolveEmbedder(config, scopedOptions);
+  const entries: IndexEntry[] = [];
   for (const filePath of await memoryFiles(scopedOptions)) {
     const record = await parseMemoryFile(filePath, config.retentionDays);
-    await indexMemoryRecord(record, scopedOptions, { config, provider });
+    entries.push(await prepareIndexEntry(record, config, provider));
+  }
+
+  // Clear + reinsert in one transaction on one connection. Other agents'
+  // searches see the old index until commit, never an empty or partial one,
+  // and a parse failure above aborts before anything is deleted.
+  const db = await openDatabase(scopedOptions);
+  try {
+    db.transaction(() => {
+      clearIndex(db);
+      for (const entry of entries) {
+        upsertMemory(db, entry.record, entry.embedding);
+      }
+    })();
+  } finally {
+    db.close();
   }
 }
 
@@ -555,13 +568,16 @@ async function syncInstructionFile(dir: string, fileName: string, options: OpenB
   return file;
 }
 
-async function indexMemoryRecord(
+interface IndexEntry {
+  record: MemoryRecord;
+  embedding: number[] | null;
+}
+
+async function prepareIndexEntry(
   record: MemoryRecord,
-  options: OpenBrainOptions,
-  context: { config?: Awaited<ReturnType<typeof loadConfig>>; provider?: EmbeddingProvider } = {}
-) {
-  const config = context.config ?? (await loadConfig(options));
-  const provider = context.provider ?? resolveEmbedder(config, options);
+  config: OpenBrainConfig,
+  provider: EmbeddingProvider
+): Promise<IndexEntry> {
   const normalized = {
     ...record,
     metadata: memoryMetadataDefaults(record.type, record.createdAt, config.retentionDays, record.metadata)
@@ -574,9 +590,20 @@ async function indexMemoryRecord(
           `${normalized.title}\n\n${normalized.body}`,
           config.embeddings.timeoutMs
         );
+  return { record: normalized, embedding };
+}
+
+async function indexMemoryRecord(
+  record: MemoryRecord,
+  options: OpenBrainOptions,
+  context: { config?: OpenBrainConfig; provider?: EmbeddingProvider } = {}
+) {
+  const config = context.config ?? (await loadConfig(options));
+  const provider = context.provider ?? resolveEmbedder(config, options);
+  const entry = await prepareIndexEntry(record, config, provider);
   const db = await openDatabase(options);
   try {
-    upsertMemory(db, normalized, embedding);
+    upsertMemory(db, entry.record, entry.embedding);
   } finally {
     db.close();
   }
