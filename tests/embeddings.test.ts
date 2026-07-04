@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { embedWithTimeout } from "../src/embeddings.js";
+import { embedWithTimeout, serialiseEmbeds } from "../src/embeddings.js";
 import type { EmbeddingProvider } from "../src/types.js";
 
 describe("embedWithTimeout", () => {
@@ -68,5 +68,47 @@ describe("embedWithTimeout", () => {
     };
 
     expect(await embedWithTimeout(provider, "query", 1000, 5)).toBeNull();
+  });
+});
+
+describe("serialiseEmbeds", () => {
+  test("keeps at most one embed in flight when callers time out", async () => {
+    let started = 0;
+    const finishers: Array<() => void> = [];
+    const inner: EmbeddingProvider = {
+      embed() {
+        started += 1;
+        return new Promise((resolve) => {
+          finishers.push(() => resolve([1]));
+        });
+      }
+    };
+    const provider = serialiseEmbeds(inner);
+
+    // Both time out, but only the first ever starts an inference; the second
+    // spends its budget queued instead of running alongside a slow embed.
+    expect(await embedWithTimeout(provider, "one", 5)).toBeNull();
+    expect(await embedWithTimeout(provider, "two", 5)).toBeNull();
+    expect(started).toBe(1);
+
+    // Once the slow embed finishes, the queued one starts.
+    finishers[0]!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(started).toBe(2);
+  });
+
+  test("passes embeds through in order when the provider is fast", async () => {
+    const seen: string[] = [];
+    const inner: EmbeddingProvider = {
+      async embed(text: string) {
+        seen.push(text);
+        return [seen.length];
+      }
+    };
+    const provider = serialiseEmbeds(inner);
+
+    expect(await provider.embed("first")).toEqual([1]);
+    expect(await provider.embed("second")).toEqual([2]);
+    expect(seen).toEqual(["first", "second"]);
   });
 });
