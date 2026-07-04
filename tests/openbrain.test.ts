@@ -486,6 +486,26 @@ describe("OpenBrain local storage", () => {
     });
   });
 
+  test("rebuildIndex keeps the existing index when a memory file fails to parse", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Deploy with the release checklist." }, options(home));
+
+    const invalid = path.join(home, "brains", "main", "memories", "2026-06-04-broken.md");
+    await writeFile(
+      invalid,
+      ["---", "id: 2026-06-04-broken", "title: Missing type", "---", "", "Broken frontmatter.", ""].join(
+        "\n"
+      ),
+      "utf8"
+    );
+
+    await expect(rebuildIndex(options(home))).rejects.toThrow(/missing (type|createdAt)/);
+
+    const results = await searchMemories("release checklist", options(home));
+    expect(results).toHaveLength(1);
+    expect(results[0]?.title).toBe("Deploy with the release checklist");
+  });
+
   test("warns and defaults invalid metadata instead of silently dropping it", async () => {
     const home = await tempHome();
     await initOpenBrain(options(home));
