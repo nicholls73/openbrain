@@ -932,11 +932,8 @@ function toFtsQuery(query: string) {
 function excerpt(body: string, query: string) {
   const words = query.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   const lowerBody = body.toLowerCase();
-  const firstMatch =
-    words
-      .map((word) => lowerBody.indexOf(word))
-      .filter((index) => index >= 0)
-      .sort()[0] ?? 0;
+  const matchIndexes = words.map((word) => lowerBody.indexOf(word)).filter((index) => index >= 0);
+  const firstMatch = matchIndexes.length ? Math.min(...matchIndexes) : 0;
   const start = Math.max(0, firstMatch - 60);
   const value = body
     .slice(start, start + 220)
