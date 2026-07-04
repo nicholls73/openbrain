@@ -6,6 +6,7 @@ import type { IndexedMemoryRow } from "./db.js";
 import {
   allRowsWithEmbeddings,
   clearIndex,
+  decodeEmbedding,
   deleteIndexedMemory,
   ftsSearch,
   getMemoryRow,
@@ -257,9 +258,12 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
       let dimensionMismatches = 0;
       const vectorRows = allRowsWithEmbeddings(db)
         .filter((row) => rowMatchesSearchOptions(row, options, now))
-        .map((row) => ({ row, embedding: JSON.parse(row.embedding ?? "[]") as number[] }))
-        .filter(({ embedding }) => {
-          if (embedding.length !== queryEmbedding.length) {
+        .map((row) => ({ row, embedding: decodeEmbedding(row.embedding) }))
+        .filter((entry): entry is { row: IndexedMemoryRow; embedding: ArrayLike<number> } => {
+          if (!entry.embedding) {
+            return false;
+          }
+          if (entry.embedding.length !== queryEmbedding.length) {
             dimensionMismatches += 1;
             return false;
           }
@@ -989,7 +993,7 @@ function excerpt(body: string, query: string) {
   return start > 0 ? `...${value}` : value;
 }
 
-function cosine(left: number[], right: number[]) {
+function cosine(left: ArrayLike<number>, right: ArrayLike<number>) {
   if (!left.length || left.length !== right.length) {
     return 0;
   }

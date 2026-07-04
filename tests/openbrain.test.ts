@@ -869,6 +869,38 @@ describe("OpenBrain local storage", () => {
     expect(isMemoryType("project")).toBe(false);
   });
 
+  test("reads legacy JSON embeddings and rewrites them as float32 blobs on rebuild", async () => {
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        return [1, 0, 0];
+      }
+    };
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Vector memory about deployment." }, options(home, embedder));
+
+    // Simulate a database written before the float32 blob encoding.
+    const legacyDb = await openDatabase({ home, brain: "main" });
+    try {
+      legacyDb.prepare("UPDATE memories SET embedding = ?").run(JSON.stringify([1, 0, 0]));
+    } finally {
+      legacyDb.close();
+    }
+
+    const results = await searchMemories("deployment", options(home, embedder));
+    expect(results).toHaveLength(1);
+    expect(results[0]?.match).toBe("hybrid");
+
+    await rebuildIndex(options(home, embedder));
+    const db = await openDatabase({ home, brain: "main" });
+    try {
+      const row = db.prepare("SELECT embedding FROM memories").get() as { embedding: unknown };
+      expect(Buffer.isBuffer(row.embedding)).toBe(true);
+    } finally {
+      db.close();
+    }
+    expect((await searchMemories("deployment", options(home, embedder)))[0]?.match).toBe("hybrid");
+  });
+
   test("rebuild embeds each memory exactly once with a shared embedder", async () => {
     const home = await tempHome();
     let embedCalls = 0;
