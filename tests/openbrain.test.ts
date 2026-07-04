@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -231,6 +231,34 @@ describe("OpenBrain local storage", () => {
 
     await addBrainPath("alpha", projectPath, options(home));
     expect(await getCurrentBrain({ ...options(home), cwd: projectPath })).toBe("alpha");
+  });
+
+  test("concurrent path rule additions do not lose config writes", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    await Promise.all([
+      addBrainPath("alpha", path.join(home, "projects", "alpha"), options(home)),
+      addBrainPath("beta", path.join(home, "projects", "beta"), options(home)),
+      addBrainPath("gamma", path.join(home, "projects", "gamma"), options(home))
+    ]);
+
+    const config = await loadConfig(options(home));
+    expect(config.brains.pathRules.map((rule) => rule.brain).sort()).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  test("takes over a stale config lock left by a crashed process", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const lockPath = path.join(home, "config.json.lock");
+    await mkdir(lockPath, { recursive: true });
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockPath, past, past);
+
+    await addBrainPath("alpha", path.join(home, "projects", "alpha"), options(home));
+
+    const config = await loadConfig(options(home));
+    expect(config.brains.pathRules.map((rule) => rule.brain)).toEqual(["alpha"]);
   });
 
   test("matches path rules when cwd and config use different symlink spellings", async () => {

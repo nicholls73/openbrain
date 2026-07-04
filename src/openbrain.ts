@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrainUnavailableError, canonicalPathForRule, resolveBrain } from "./brains.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, updateConfig } from "./config.js";
 import type { IndexedMemoryRow } from "./db.js";
 import {
   allRowsWithEmbeddings,
@@ -68,21 +68,22 @@ export async function setupOpenBrain(
   options: OpenBrainOptions = {}
 ): Promise<SetupResult> {
   await mkdir(openBrainHome(options), { recursive: true });
-  const config = await loadConfig(options);
   const pathRules: SetupResult["pathRules"] = [];
 
   if (input.brainScope === "default") {
-    config.brains.unmatched = "default";
-    config.brains.pathRules = [];
-    await saveConfig(config, options);
+    const config = await updateConfig((config) => {
+      config.brains.unmatched = "default";
+      config.brains.pathRules = [];
+    }, options);
     await initOpenBrain({ ...options, brain: config.brains.default });
   } else {
     if (!input.pathRules?.length) {
       throw new Error("setup with path-specific brains requires at least one path rule");
     }
-    config.brains.unmatched = "ask";
-    config.brains.pathRules = [];
-    await saveConfig(config, options);
+    await updateConfig((config) => {
+      config.brains.unmatched = "ask";
+      config.brains.pathRules = [];
+    }, options);
 
     for (const rule of input.pathRules) {
       const added = await addBrainPath(rule.brain, rule.path, options);
@@ -119,7 +120,6 @@ export async function addBrainPath(
   options: OpenBrainOptions = {}
 ) {
   await mkdir(openBrainHome(options), { recursive: true });
-  const config = await loadConfig(options);
   const normalizedBrain = brain
     .trim()
     .toLowerCase()
@@ -130,18 +130,19 @@ export async function addBrainPath(
   }
 
   const canonicalPath = canonicalPathForRule(targetPath);
-  const existing = config.brains.pathRules.find((rule) => rule.brain === normalizedBrain);
-  if (existing) {
-    if (!existing.paths.includes(canonicalPath)) {
-      existing.paths.push(canonicalPath);
+  await updateConfig((config) => {
+    const existing = config.brains.pathRules.find((rule) => rule.brain === normalizedBrain);
+    if (existing) {
+      if (!existing.paths.includes(canonicalPath)) {
+        existing.paths.push(canonicalPath);
+      }
+    } else {
+      config.brains.pathRules.push({
+        brain: normalizedBrain,
+        paths: [canonicalPath]
+      });
     }
-  } else {
-    config.brains.pathRules.push({
-      brain: normalizedBrain,
-      paths: [canonicalPath]
-    });
-  }
-  await saveConfig(config, options);
+  }, options);
   return { brain: normalizedBrain, path: canonicalPath };
 }
 
