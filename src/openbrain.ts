@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrainUnavailableError, canonicalPathForRule, resolveBrain } from "./brains.js";
 import { loadConfig, updateConfig } from "./config.js";
@@ -47,6 +48,7 @@ import type {
   MergeMemoryInput,
   OpenBrainConfig,
   OpenBrainOptions,
+  PendingReview,
   PromoteMemoryInput,
   SearchMemoriesOptions,
   SearchResult,
@@ -626,6 +628,61 @@ export async function dreamRun(options: OpenBrainOptions = {}): Promise<DreamRes
   );
 }
 
+const REVIEW_FILE_PATTERN = /-(promotion-candidates|consolidation)(-\d+)?\.md$/;
+// Dreams before v0.5 wrote review files even when there was nothing to
+// action; these markers identify them so they never show up as pending.
+const LEGACY_EMPTY_MARKERS = ["No promotion candidates.", "No likely duplicates."];
+
+// Reviews are pending while their file sits in the dreams directory;
+// "openbrain review done" moves them into dreams/actioned. Presence is the
+// only state, so the queue survives crashes and stays inspectable as files.
+export async function listPendingReviews(options: OpenBrainOptions = {}): Promise<PendingReview[]> {
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const dir = dreamsDir(scopedOptions);
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  const pending: PendingReview[] = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const kind = entry.name.match(REVIEW_FILE_PATTERN)?.[1] as PendingReview["kind"] | undefined;
+    if (!entry.isFile() || !kind) {
+      continue;
+    }
+    const filePath = path.join(dir, entry.name);
+    const content = await readFile(filePath, "utf8");
+    if (LEGACY_EMPTY_MARKERS.some((marker) => content.includes(marker))) {
+      continue;
+    }
+    pending.push({ path: filePath, kind });
+  }
+  return pending;
+}
+
+export async function markReviewDone(file: string, options: OpenBrainOptions = {}) {
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const base = path.basename(file);
+  if (!REVIEW_FILE_PATTERN.test(base)) {
+    throw new Error(`Not a review file: ${file}`);
+  }
+  const dir = dreamsDir(scopedOptions);
+  const source = path.join(dir, base);
+  if (!(await exists(source))) {
+    throw new Error(`Review file not found: ${source}`);
+  }
+  const actionedDir = path.join(dir, "actioned");
+  await mkdir(actionedDir, { recursive: true });
+  const target = path.join(actionedDir, base);
+  await rename(source, target);
+  return target;
+}
+
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
   return syncInstructionFile(codexHome(options), "AGENTS.md", options);
 }
@@ -733,12 +790,25 @@ export async function runSessionStartHook(options: OpenBrainOptions = {}): Promi
   } catch {
     // Dreaming is best-effort. Swallow so the session always starts.
   }
-  return [
+  const lines = [
     `OpenBrain memory is active (brain: ${status.brain}).`,
     `Before starting a task, run: openbrain memory search "<short description of the task>" and use only relevant results.`,
     `After meaningful work, record durable memories with: openbrain memory add --type <preference|workflow|workspace|decision|episode> --text "...".`,
     `Daily dreaming has already been handled for this session.`
-  ].join("\n");
+  ];
+
+  // Dream proposes; agents dispose. Without this nudge the review files have
+  // no consumer and pile up unread, so surfacing them here closes the loop.
+  const pending = await listPendingReviews(options).catch(() => [] as PendingReview[]);
+  if (pending.length > 0) {
+    lines.push(
+      `Pending memory reviews (${pending.length}):`,
+      ...pending.map((review) => `- ${review.path}`),
+      `Read each review file and action its suggestions with openbrain memory promote/update/merge/delete, asking the user only where a judgement call is needed. Never merge or promote without reading the memories first.`,
+      `After actioning a review, mark it handled: openbrain review done <file>.`
+    );
+  }
+  return lines.join("\n");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -982,6 +1052,11 @@ async function writePromotionCandidates(
     (await markdownFiles(episodesDir(options))).map((filePath) => parseMemoryFile(filePath, retentionDays))
   );
   const candidates = records.filter((record) => record.type === "episode" && record.metadata.promoteAs);
+  // Review files exist to be actioned by agents; a file with nothing to do
+  // would just be noise in the pending-review queue.
+  if (!candidates.length) {
+    return undefined;
+  }
   const target = await uniqueDreamFilePath("promotion-candidates", date, now, options);
   await writeFile(target, renderPromotionCandidates(candidates), "utf8");
   return target;
@@ -994,11 +1069,6 @@ function renderPromotionCandidates(candidates: MemoryRecord[]) {
     "These episodes were marked with `promoteAs`. Review the source text before creating durable memory.",
     ""
   ];
-
-  if (!candidates.length) {
-    lines.push("No promotion candidates.");
-    return lines.join("\n") + "\n";
-  }
 
   for (const candidate of candidates) {
     const type = candidate.metadata.promoteAs as DurableMemoryType;
@@ -1032,6 +1102,9 @@ async function writeConsolidationReport(date: string, now: Date, options: OpenBr
     groups = findConsolidationGroups(db, now);
   } finally {
     db.close();
+  }
+  if (!groups.length) {
+    return undefined;
   }
   const target = await uniqueDreamFilePath("consolidation", date, now, options);
   await writeFile(target, renderConsolidationReport(groups), "utf8");
@@ -1094,11 +1167,6 @@ function renderConsolidationReport(groups: ConsolidationGroup[]) {
     "resolve with an update. Dream never merges or deletes memories itself.",
     ""
   ];
-
-  if (!groups.length) {
-    lines.push("No likely duplicates.");
-    return `${lines.join("\n")}\n`;
-  }
 
   groups.forEach((group, index) => {
     const keep = group.rows[0]!;
@@ -1374,6 +1442,20 @@ Do not promote automatically.
 Dream also writes a consolidation review of likely duplicate durable memories
 with ready-to-run merge commands. Review the memories before merging; never
 merge automatically.
+
+Dream proposes; you dispose. Check for unactioned review files with:
+
+\`\`\`bash
+openbrain review list
+\`\`\`
+
+Read each pending file and action its suggestions with \`memory promote\`,
+\`update\`, \`merge\`, or \`delete\`, asking the user only where a judgement call
+is needed. Then mark it handled:
+
+\`\`\`bash
+openbrain review done <file>
+\`\`\`
 
 For POC or reference work, classify details before storing them. Keep the
 reusable rule, such as how to separate UI, calculation, data contract, fixture,

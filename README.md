@@ -149,6 +149,8 @@ openbrain memory add --type episode --promote-as workflow --text "..."
 openbrain memory update <id> --text "..."
 openbrain memory merge <source-id> --into <target-id> --text "..."
 openbrain memory promote <episode-id> --type workflow --text "..."
+openbrain review list
+openbrain review done <file>
 openbrain dream run
 openbrain index rebuild
 openbrain prune
@@ -247,6 +249,8 @@ Set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
 
 The first semantic search in a session is slower because the local embedding model has to load, and on first ever use download into the OpenBrain model cache. Model load has its own budget (`embeddings.loadTimeoutMs`, default 30s) separate from embedding itself (`embeddings.timeoutMs`, default 5s). When embeddings fail or time out, search falls back to SQLite FTS and prints a warning so the degradation is visible.
 
-Dreaming is maintenance and review only. It prunes expired episodes, rebuilds the retrieval index from Markdown, writes promotion candidate review files, writes a consolidation review of likely duplicate durable memories, and writes an audit log. It does not invent, promote, merge, or delete memories automatically.
+Dreaming is maintenance and review only. It prunes expired episodes, rebuilds the retrieval index from Markdown, and writes an audit log. When there is something to action, it also writes promotion candidate and consolidation review files. It does not invent, promote, merge, or delete memories automatically.
+
+Review files are consumed by agents, not humans: the Claude Code session-start hook lists pending reviews, and agents check `openbrain review list`, action the suggestions (asking the user only for judgement calls), then run `openbrain review done <file>` to move the report into `dreams/actioned/`.
 
 When a new durable memory is highly similar to an existing one of the same type, `memory add` still writes it but reports the likely duplicate and suggests `memory update` so agents fold facts into existing memories instead of accumulating near-copies.

@@ -22,6 +22,8 @@ import {
   getCurrentBrain,
   initOpenBrain,
   listMemories,
+  listPendingReviews,
+  markReviewDone,
   mergeMemory,
   promoteMemory,
   pruneEpisodes,
@@ -779,7 +781,7 @@ describe("OpenBrain local storage", () => {
     expect(report).toContain("never merges or deletes");
   });
 
-  test("dream consolidation review reports no likely duplicates for distinct memories", async () => {
+  test("dream writes no consolidation review when memories are distinct", async () => {
     const home = await tempHome();
     await addMemory({ type: "workflow", text: "Release via the checklist." }, options(home));
 
@@ -787,8 +789,66 @@ describe("OpenBrain local storage", () => {
     if (result.status !== "ran") {
       throw new Error("expected dream to run");
     }
-    const report = await readFile(result.consolidationReportPath!, "utf8");
-    expect(report).toContain("No likely duplicates.");
+    expect(result.consolidationReportPath).toBeUndefined();
+    expect(await listPendingReviews(options(home))).toHaveLength(0);
+  });
+
+  test("session start surfaces pending reviews until they are marked done", async () => {
+    const home = await tempHome();
+    await addMemory(
+      {
+        type: "episode",
+        text: "Staging deploys need review comments handled before merge.",
+        metadata: { promoteAs: "workflow" }
+      },
+      options(home)
+    );
+
+    const dream = await dreamRun(options(home));
+    if (dream.status !== "ran") {
+      throw new Error("expected dream to run");
+    }
+    expect(dream.promotionCandidatesPath).toBeDefined();
+
+    const pending = await listPendingReviews(options(home));
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ kind: "promotion-candidates", path: dream.promotionCandidatesPath });
+
+    const reminder = await runSessionStartHook(options(home));
+    expect(reminder).toContain("Pending memory reviews (1):");
+    expect(reminder).toContain(dream.promotionCandidatesPath!);
+    expect(reminder).toContain("openbrain review done");
+
+    const actioned = await markReviewDone(dream.promotionCandidatesPath!, options(home));
+    expect(actioned).toContain(path.join("dreams", "actioned"));
+    await expect(readFile(actioned, "utf8")).resolves.toContain("Promotion candidates");
+
+    expect(await listPendingReviews(options(home))).toHaveLength(0);
+    expect(await runSessionStartHook(options(home))).not.toContain("Pending memory reviews");
+  });
+
+  test("review done rejects unknown and non-review files", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    await expect(markReviewDone("2026-06-04-notes.md", options(home))).rejects.toThrow("Not a review file");
+    await expect(markReviewDone("2026-06-04-missing-consolidation.md", options(home))).rejects.toThrow(
+      "Review file not found"
+    );
+  });
+
+  test("legacy empty review files are never pending", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const dreams = path.join(home, "brains", "main", "dreams");
+    await mkdir(dreams, { recursive: true });
+    await writeFile(
+      path.join(dreams, "2026-06-01-legacy-consolidation.md"),
+      "# Consolidation review\n\nNo likely duplicates.\n",
+      "utf8"
+    );
+
+    expect(await listPendingReviews(options(home))).toHaveLength(0);
   });
 
   test("does not warn about FTS-only results when embeddings are disabled", async () => {
@@ -1240,10 +1300,8 @@ describe("OpenBrain local storage", () => {
       readFile(path.join(home, "brains", "main", "dreams", "state.json"), "utf8")
     ).resolves.toContain('"lastDreamDate": "2026-06-04"');
     await expect(readFile(result.logPath, "utf8")).resolves.toContain("Dream run");
-    expect(result.promotionCandidatesPath).toBeTruthy();
-    await expect(readFile(result.promotionCandidatesPath!, "utf8")).resolves.toContain(
-      "No promotion candidates."
-    );
+    // Nothing to action means no review file is written at all.
+    expect(result.promotionCandidatesPath).toBeUndefined();
     await expect(readFile(oldEpisode, "utf8")).rejects.toThrow();
     expect((await searchMemories("inventing facts", options(home)))[0]?.id).toBe(added.id);
   });
@@ -1295,7 +1353,8 @@ describe("OpenBrain local storage", () => {
     expect(nextDay.status).toBe("ran");
     const dreamFiles = await readdir(path.join(home, "brains", "main", "dreams"));
     expect(dreamFiles.filter((file) => file.endsWith("-dream.md"))).toHaveLength(2);
-    expect(dreamFiles.filter((file) => file.includes("promotion-candidates"))).toHaveLength(2);
+    // No promotion candidates existed, so no review files were written.
+    expect(dreamFiles.filter((file) => file.includes("promotion-candidates"))).toHaveLength(0);
   });
 });
 
