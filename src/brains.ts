@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
@@ -35,16 +36,7 @@ export function resolveBrain(config: OpenBrainConfig, options: OpenBrainOptions 
   }
 
   const cwd = normalizePath(options.cwd ?? process.cwd());
-  const match = config.brains.pathRules
-    .flatMap((rule) =>
-      rule.paths.map((rulePath) => ({
-        brain: rule.brain,
-        path: normalizePath(expandHome(rulePath))
-      }))
-    )
-    .filter((rule) => cwd === rule.path || cwd.startsWith(`${rule.path}${path.sep}`))
-    .sort((left, right) => right.path.length - left.path.length)[0];
-
+  const match = matchPathRule(config, cwd);
   if (match) {
     return {
       brain: sanitizeBrainName(match.brain),
@@ -53,6 +45,26 @@ export function resolveBrain(config: OpenBrainConfig, options: OpenBrainOptions 
       unmatched: config.brains.unmatched,
       cwd
     };
+  }
+
+  // A git worktree is the same project context as its source repo, so an
+  // unmatched path that is a linked worktree inherits the source repo's
+  // brain. An explicit rule for the worktree path wins above; this only runs
+  // when nothing matched, and never writes config.
+  if (config.brains.pathRules.length > 0) {
+    const sourceRoot = gitMainWorktreeRoot(cwd);
+    if (sourceRoot && sourceRoot !== cwd) {
+      const sourceMatch = matchPathRule(config, sourceRoot);
+      if (sourceMatch) {
+        return {
+          brain: sanitizeBrainName(sourceMatch.brain),
+          enabled: true,
+          matchedRule: true,
+          unmatched: config.brains.unmatched,
+          cwd
+        };
+      }
+    }
   }
 
   const unmatched = config.brains.unmatched ?? "default";
@@ -67,6 +79,41 @@ export function resolveBrain(config: OpenBrainConfig, options: OpenBrainOptions 
 
 export function canonicalPathForRule(value: string) {
   return normalizePath(expandHome(value));
+}
+
+function matchPathRule(config: OpenBrainConfig, targetPath: string) {
+  return config.brains.pathRules
+    .flatMap((rule) =>
+      rule.paths.map((rulePath) => ({
+        brain: rule.brain,
+        path: normalizePath(expandHome(rulePath))
+      }))
+    )
+    .filter((rule) => targetPath === rule.path || targetPath.startsWith(`${rule.path}${path.sep}`))
+    .sort((left, right) => right.path.length - left.path.length)[0];
+}
+
+// Root of the source (main) worktree when cwd is inside a git worktree, or
+// undefined when git is unavailable, cwd is not a repo, or the layout is
+// unexpected (e.g. bare repos). Best-effort by design: any failure just means
+// no inheritance.
+function gitMainWorktreeRoot(cwd: string): string | undefined {
+  const result = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    encoding: "utf8",
+    timeout: 2000
+  });
+  if (result.status !== 0 || typeof result.stdout !== "string") {
+    return undefined;
+  }
+  const commonDir = result.stdout.trim();
+  if (!commonDir || path.basename(commonDir) !== ".git") {
+    return undefined;
+  }
+  try {
+    return normalizePath(path.dirname(commonDir));
+  } catch {
+    return undefined;
+  }
 }
 
 export function sanitizeBrainName(value: string) {
