@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import { embedWithTimeout, serialiseEmbeds } from "../src/embeddings.js";
+import { describe, expect, test, vi } from "vitest";
+import { embedWithTimeout, enforceDimensions, serialiseEmbeds } from "../src/embeddings.js";
 import type { EmbeddingProvider } from "../src/types.js";
 
 describe("embedWithTimeout", () => {
@@ -110,5 +110,36 @@ describe("serialiseEmbeds", () => {
     expect(await provider.embed("first")).toEqual([1]);
     expect(await provider.embed("second")).toEqual([2]);
     expect(seen).toEqual(["first", "second"]);
+  });
+});
+
+describe("enforceDimensions", () => {
+  test("passes embeddings through when the length matches the config", async () => {
+    const inner: EmbeddingProvider = {
+      async embed() {
+        return [1, 2, 3];
+      }
+    };
+
+    expect(await enforceDimensions(inner, 3).embed("query")).toEqual([1, 2, 3]);
+  });
+
+  test("rejects mismatched embeddings and warns once", async () => {
+    const inner: EmbeddingProvider = {
+      async embed() {
+        return [1, 2, 3, 4];
+      }
+    };
+    const provider = enforceDimensions(inner, 3);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await provider.embed("first")).toBeNull();
+      expect(await provider.embed("second")).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("embeddings.dimensions");
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
