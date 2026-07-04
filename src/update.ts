@@ -4,7 +4,8 @@ import { updateCheckPath } from "./paths.js";
 import type { OpenBrainOptions } from "./types.js";
 
 const PACKAGE_URL = "https://raw.githubusercontent.com/nicholls73/openbrain/main/package.json";
-const INSTALL_COMMAND = "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash";
+const INSTALL_COMMAND =
+  "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 1000;
 

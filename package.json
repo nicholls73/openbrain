@@ -8,6 +8,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "lint": "biome ci .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -21,6 +24,7 @@
     "better-sqlite3": "12.10.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.2",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "^24.10.1",
     "typescript": "^5.9.3",

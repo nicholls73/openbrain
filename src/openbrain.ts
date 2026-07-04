@@ -1,7 +1,8 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrainUnavailableError, canonicalPathForRule, resolveBrain } from "./brains.js";
-import { loadConfig, saveConfig, writeDefaultConfig } from "./config.js";
+import { loadConfig, saveConfig } from "./config.js";
+import type { IndexedMemoryRow } from "./db.js";
 import {
   allRowsWithEmbeddings,
   clearIndex,
@@ -12,8 +13,14 @@ import {
   openDatabase,
   upsertMemory
 } from "./db.js";
-import type { IndexedMemoryRow } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
+import {
+  memoryMetadataDefaults,
+  parseMemoryFile,
+  renderMemoryMarkdown,
+  slugify,
+  titleFromText
+} from "./markdown.js";
 import {
   brainHome,
   claudeHome,
@@ -24,29 +31,22 @@ import {
   memoriesDir,
   openBrainHome
 } from "./paths.js";
-import {
-  memoryMetadataDefaults,
-  parseMemoryFile,
-  renderMemoryMarkdown,
-  slugify,
-  titleFromText
-} from "./markdown.js";
 import type {
   AddMemoryInput,
   AddMemoryResult,
-  DurableMemoryType,
   DreamResult,
   DreamRunResult,
+  DurableMemoryType,
   EmbeddingProvider,
   MemoryRecord,
   MemoryType,
   OpenBrainOptions,
   PromoteMemoryInput,
   SearchMemoriesOptions,
+  SearchResult,
   SetupInput,
   SetupResult,
-  StoredMemoryType,
-  SearchResult
+  StoredMemoryType
 } from "./types.js";
 
 const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
@@ -68,7 +68,7 @@ export async function setupOpenBrain(
 ): Promise<SetupResult> {
   await mkdir(openBrainHome(options), { recursive: true });
   const config = await loadConfig(options);
-  let pathRules: SetupResult["pathRules"] = [];
+  const pathRules: SetupResult["pathRules"] = [];
 
   if (input.brainScope === "default") {
     config.brains.unmatched = "default";
@@ -212,10 +212,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
     // live on different, incomparable scales, so a raw-score merge let whichever
     // scale ran larger dominate regardless of relevance.
     const RRF_K = 60;
-    const fused = new Map<
-      string,
-      { row: IndexedMemoryRow; score: number; matches: Set<"fts" | "vector"> }
-    >();
+    const fused = new Map<string, { row: IndexedMemoryRow; score: number; matches: Set<"fts" | "vector"> }>();
 
     const fuse = (rows: IndexedMemoryRow[], match: "fts" | "vector") => {
       rows.forEach((row, index) => {
@@ -273,22 +270,24 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
     return Array.from(fused.values())
       .sort((left, right) => right.score - left.score)
       .slice(0, limit)
-      .map(({ row, score, matches }): SearchResult => ({
-        id: row.id,
-        type: row.type as StoredMemoryType,
-        title: row.title,
-        path: row.path,
-        source: row.source,
-        scope: row.scope,
-        confidence: row.confidence as SearchResult["confidence"],
-        expiresAt: row.expires_at ?? undefined,
-        promotedFrom: row.promoted_from ?? undefined,
-        sensitivity: row.sensitivity as SearchResult["sensitivity"],
-        promoteAs: (row.promote_as ?? undefined) as SearchResult["promoteAs"],
-        score,
-        excerpt: excerpt(row.body, query),
-        match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")
-      }));
+      .map(
+        ({ row, score, matches }): SearchResult => ({
+          id: row.id,
+          type: row.type as StoredMemoryType,
+          title: row.title,
+          path: row.path,
+          source: row.source,
+          scope: row.scope,
+          confidence: row.confidence as SearchResult["confidence"],
+          expiresAt: row.expires_at ?? undefined,
+          promotedFrom: row.promoted_from ?? undefined,
+          sensitivity: row.sensitivity as SearchResult["sensitivity"],
+          promoteAs: (row.promote_as ?? undefined) as SearchResult["promoteAs"],
+          score,
+          excerpt: excerpt(row.body, query),
+          match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")
+        })
+      );
   } finally {
     db.close();
   }
@@ -405,7 +404,9 @@ export async function dreamMaybe(options: OpenBrainOptions = {}): Promise<DreamR
 export async function dreamRun(options: OpenBrainOptions = {}): Promise<DreamResult> {
   const { options: scopedOptions, resolution } = await prepareOpenBrain(options);
   const now = options.now?.() ?? new Date();
-  return runDreamWithLock(scopedOptions, resolution.brain, now, () => performDream(scopedOptions, resolution.brain, now));
+  return runDreamWithLock(scopedOptions, resolution.brain, now, () =>
+    performDream(scopedOptions, resolution.brain, now)
+  );
 }
 
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
@@ -453,7 +454,12 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
         return group;
       }
       const remaining = group.hooks.filter(
-        (entry) => !(isRecord(entry) && typeof entry.command === "string" && entry.command.includes(CLAUDE_HOOK_COMMAND))
+        (entry) =>
+          !(
+            isRecord(entry) &&
+            typeof entry.command === "string" &&
+            entry.command.includes(CLAUDE_HOOK_COMMAND)
+          )
       );
       return { ...group, hooks: remaining };
     })
@@ -563,7 +569,11 @@ async function indexMemoryRecord(
   const embedding =
     normalized.metadata.sensitivity === "private"
       ? null
-      : await embedWithTimeout(provider, `${normalized.title}\n\n${normalized.body}`, config.embeddings.timeoutMs);
+      : await embedWithTimeout(
+          provider,
+          `${normalized.title}\n\n${normalized.body}`,
+          config.embeddings.timeoutMs
+        );
   const db = await openDatabase(options);
   try {
     upsertMemory(db, normalized, embedding);
@@ -621,7 +631,11 @@ async function runDreamWithLock(
 async function acquireDreamLock(lockPath: string, now: Date): Promise<boolean> {
   try {
     await mkdir(lockPath, { recursive: false });
-    await writeFile(path.join(lockPath, "owner.json"), `${JSON.stringify({ createdAt: now.toISOString() }, null, 2)}\n`, "utf8");
+    await writeFile(
+      path.join(lockPath, "owner.json"),
+      `${JSON.stringify({ createdAt: now.toISOString() }, null, 2)}\n`,
+      "utf8"
+    );
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
@@ -715,26 +729,33 @@ async function uniquePromotionCandidatesPath(date: string, now: Date, options: O
 }
 
 function renderDreamLog(result: DreamRunResult, now: Date) {
-  return [
-    "# Dream run",
-    "",
-    `- brain: ${result.brain}`,
-    `- date: ${result.date}`,
-    `- ranAt: ${now.toISOString()}`,
-    `- prunedEpisodes: ${result.prunedEpisodes}`,
-    `- rebuiltIndex: ${result.rebuiltIndex}`,
-    `- promotionCandidates: ${result.promotionCandidatesPath ?? "none"}`,
-    "",
-    "Maintenance performed:",
-    "",
-    "- Pruned expired episode files.",
-    "- Rebuilt the SQLite retrieval index from Markdown.",
-    "- Wrote promotion candidates for human or agent review.",
-    "- Did not create new memories."
-  ].join("\n") + "\n";
+  return (
+    [
+      "# Dream run",
+      "",
+      `- brain: ${result.brain}`,
+      `- date: ${result.date}`,
+      `- ranAt: ${now.toISOString()}`,
+      `- prunedEpisodes: ${result.prunedEpisodes}`,
+      `- rebuiltIndex: ${result.rebuiltIndex}`,
+      `- promotionCandidates: ${result.promotionCandidatesPath ?? "none"}`,
+      "",
+      "Maintenance performed:",
+      "",
+      "- Pruned expired episode files.",
+      "- Rebuilt the SQLite retrieval index from Markdown.",
+      "- Wrote promotion candidates for human or agent review.",
+      "- Did not create new memories."
+    ].join("\n") + "\n"
+  );
 }
 
-async function writePromotionCandidates(date: string, now: Date, options: OpenBrainOptions, retentionDays: number) {
+async function writePromotionCandidates(
+  date: string,
+  now: Date,
+  options: OpenBrainOptions,
+  retentionDays: number
+) {
   const records = await Promise.all(
     (await markdownFiles(episodesDir(options))).map((filePath) => parseMemoryFile(filePath, retentionDays))
   );
@@ -788,12 +809,7 @@ function resolveEmbedder(config: Awaited<ReturnType<typeof loadConfig>>, options
   return createEmbeddingProvider(config, options);
 }
 
-async function uniqueMemoryId(
-  type: MemoryType,
-  title: string,
-  now: Date,
-  options: OpenBrainOptions
-) {
+async function uniqueMemoryId(type: MemoryType, title: string, now: Date, options: OpenBrainOptions) {
   const date = now.toISOString().slice(0, 10);
   const base = `${date}-${slugify(title) || type}`;
   const targetDir = type === "episode" ? episodesDir(options) : memoriesDir(options);
@@ -877,19 +893,28 @@ function rowToMemoryRecord(row: {
 }
 
 function toFtsQuery(query: string) {
-  return query
-    .toLowerCase()
-    .match(/[a-z0-9]+/g)
-    ?.map((token) => `${token}*`)
-    .join(" OR ") ?? "";
+  return (
+    query
+      .toLowerCase()
+      .match(/[a-z0-9]+/g)
+      ?.map((token) => `${token}*`)
+      .join(" OR ") ?? ""
+  );
 }
 
 function excerpt(body: string, query: string) {
   const words = query.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   const lowerBody = body.toLowerCase();
-  const firstMatch = words.map((word) => lowerBody.indexOf(word)).filter((index) => index >= 0).sort()[0] ?? 0;
+  const firstMatch =
+    words
+      .map((word) => lowerBody.indexOf(word))
+      .filter((index) => index >= 0)
+      .sort()[0] ?? 0;
   const start = Math.max(0, firstMatch - 60);
-  const value = body.slice(start, start + 220).replace(/\s+/g, " ").trim();
+  const value = body
+    .slice(start, start + 220)
+    .replace(/\s+/g, " ")
+    .trim();
   return start > 0 ? `...${value}` : value;
 }
 

@@ -11,21 +11,21 @@ import {
   sqliteNativeModuleRecoveryMessage
 } from "../src/db.js";
 import {
-  addMemory,
   addBrainPath,
+  addMemory,
   deleteMemory,
   dreamMaybe,
   dreamRun,
-  initOpenBrain,
   getCurrentBrain,
+  initOpenBrain,
   listMemories,
-  pruneEpisodes,
   promoteMemory,
+  pruneEpisodes,
   rebuildIndex,
   runSessionStartHook,
   searchMemories,
-  showMemory,
   setupOpenBrain,
+  showMemory,
   syncClaudeAgent,
   syncClaudeSettings,
   syncCodexAgent
@@ -106,9 +106,7 @@ describe("OpenBrain local storage", () => {
 
     await initOpenBrain(options(home));
 
-    await expect(readFile(path.join(home, "config.json"), "utf8")).resolves.toContain(
-      "\"retentionDays\": 30"
-    );
+    await expect(readFile(path.join(home, "config.json"), "utf8")).resolves.toContain('"retentionDays": 30');
     await expect(readFile(path.join(home, "brains", "main", "openbrain.db"))).resolves.toBeInstanceOf(Buffer);
   });
 
@@ -320,12 +318,8 @@ describe("OpenBrain local storage", () => {
       codexAgentFile: path.join(codexHome, "AGENTS.md"),
       claudeAgentFile: path.join(claudeHome, "CLAUDE.md")
     });
-    await expect(readFile(path.join(codexHome, "AGENTS.md"), "utf8")).resolves.toContain(
-      "BEGIN OPENBRAIN"
-    );
-    await expect(readFile(path.join(claudeHome, "CLAUDE.md"), "utf8")).resolves.toContain(
-      "BEGIN OPENBRAIN"
-    );
+    await expect(readFile(path.join(codexHome, "AGENTS.md"), "utf8")).resolves.toContain("BEGIN OPENBRAIN");
+    await expect(readFile(path.join(claudeHome, "CLAUDE.md"), "utf8")).resolves.toContain("BEGIN OPENBRAIN");
   });
 
   test("guided setup can configure path-specific brains and ask on unmatched paths", async () => {
@@ -520,10 +514,18 @@ describe("OpenBrain local storage", () => {
 
       await rebuildIndex(options(home));
 
-      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid confidence");
-      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid sensitivity");
-      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid expiresAt");
-      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("ignored invalid promoteAs");
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+        "ignored invalid confidence"
+      );
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+        "ignored invalid sensitivity"
+      );
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+        "ignored invalid expiresAt"
+      );
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+        "ignored invalid promoteAs"
+      );
       expect((await searchMemories("invalid metadata", options(home)))[0]).toMatchObject({
         confidence: "low",
         sensitivity: "standard",
@@ -830,12 +832,14 @@ describe("OpenBrain local storage", () => {
       prunedEpisodes: 1,
       rebuiltIndex: true
     });
-    await expect(readFile(path.join(home, "brains", "main", "dreams", "state.json"), "utf8")).resolves.toContain(
-      "\"lastDreamDate\": \"2026-06-04\""
-    );
+    await expect(
+      readFile(path.join(home, "brains", "main", "dreams", "state.json"), "utf8")
+    ).resolves.toContain('"lastDreamDate": "2026-06-04"');
     await expect(readFile(result.logPath, "utf8")).resolves.toContain("Dream run");
     expect(result.promotionCandidatesPath).toBeTruthy();
-    await expect(readFile(result.promotionCandidatesPath!, "utf8")).resolves.toContain("No promotion candidates.");
+    await expect(readFile(result.promotionCandidatesPath!, "utf8")).resolves.toContain(
+      "No promotion candidates."
+    );
     await expect(readFile(oldEpisode, "utf8")).rejects.toThrow();
     expect((await searchMemories("inventing facts", options(home)))[0]?.id).toBe(added.id);
   });
@@ -858,8 +862,12 @@ describe("OpenBrain local storage", () => {
     const candidates = await readFile(result.promotionCandidatesPath!, "utf8");
     expect(candidates).toContain(episode.id);
     expect(candidates).toContain("suggestedType: workflow");
-    expect(candidates).toContain(`openbrain memory promote ${episode.id} --type workflow --text "<final durable memory>"`);
-    expect(await searchMemories("staging deploy review", { ...options(home), durableOnly: true })).toHaveLength(0);
+    expect(candidates).toContain(
+      `openbrain memory promote ${episode.id} --type workflow --text "<final durable memory>"`
+    );
+    expect(
+      await searchMemories("staging deploy review", { ...options(home), durableOnly: true })
+    ).toHaveLength(0);
   });
 
   test("dream maybe runs only once per brain each day", async () => {
@@ -899,7 +907,9 @@ describe("Codex adapter sync", () => {
     expect(agentFile).toContain("OpenBrain uses the current workspace path only to choose the active brain.");
     expect(agentFile).toContain("Treat that brain as the memory container.");
     expect(agentFile).toContain("Refer to memory by brain name or");
-    expect(agentFile).toContain("active brain. Refer to paths only when configuring brain routing or discussing");
+    expect(agentFile).toContain(
+      "active brain. Refer to paths only when configuring brain routing or discussing"
+    );
     expect(agentFile).toContain('openbrain brain add-path <brain> "<current workspace path>"');
     expect(agentFile).toContain('openbrain memory add --type workspace --text "..."');
     expect(agentFile).toContain("Record durable memories only when the guidance is likely to stay useful");
@@ -907,7 +917,9 @@ describe("Codex adapter sync", () => {
     expect(agentFile).toContain("If short-lived handoff context is useful, store it as");
     expect(agentFile).toContain("For POC or reference work, classify details before storing them.");
     expect(agentFile).toContain("- `workspace`: stable workspace, toolchain, or recurring task conventions.");
-    expect(agentFile).toContain("- `episode`: short-lived session notes, handoff state, or fast-changing facts.");
+    expect(agentFile).toContain(
+      "- `episode`: short-lived session notes, handoff state, or fast-changing facts."
+    );
     expect(agentFile).not.toContain("<current project path>");
     expect(agentFile).not.toContain("repo or tooling conventions");
     expect(agentFile).not.toContain("openbrain memory add --type project --text");
@@ -925,7 +937,9 @@ describe("Codex adapter sync", () => {
     expect(first).toContain("BEGIN OPENBRAIN");
     expect(first).toContain("openbrain dream maybe --quiet");
     expect(first).toContain("openbrain memory search");
-    expect(first.indexOf("openbrain dream maybe --quiet")).toBeLessThan(first.indexOf("openbrain memory search"));
+    expect(first.indexOf("openbrain dream maybe --quiet")).toBeLessThan(
+      first.indexOf("openbrain memory search")
+    );
 
     await writeFile(
       path.join(codexHome, "AGENTS.md"),
@@ -985,8 +999,8 @@ describe("Claude adapter sync", () => {
     await syncClaudeAgent({ ...options(home), claudeHome });
     const settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
 
-    const commands = settings.hooks.SessionStart.flatMap(
-      (group: { hooks: { command: string }[] }) => group.hooks.map((h) => h.command)
+    const commands = settings.hooks.SessionStart.flatMap((group: { hooks: { command: string }[] }) =>
+      group.hooks.map((h) => h.command)
     );
     expect(commands).toContain("openbrain hook session-start");
   });
@@ -1017,8 +1031,8 @@ describe("Claude adapter sync", () => {
 
     expect(settings.model).toBe("opus");
     expect(settings.hooks.Stop[0].hooks[0].command).toBe("echo other-hook");
-    const commands = settings.hooks.SessionStart.flatMap(
-      (group: { hooks: { command: string }[] }) => group.hooks.map((h) => h.command)
+    const commands = settings.hooks.SessionStart.flatMap((group: { hooks: { command: string }[] }) =>
+      group.hooks.map((h) => h.command)
     );
     expect(commands).toContain("echo keep-me");
     expect(commands).toContain("openbrain hook session-start");
@@ -1033,8 +1047,8 @@ describe("Claude adapter sync", () => {
     await syncClaudeSettings({ ...options(home), claudeHome });
     const settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
 
-    const commands = settings.hooks.SessionStart.flatMap(
-      (group: { hooks: { command: string }[] }) => group.hooks.map((h) => h.command)
+    const commands = settings.hooks.SessionStart.flatMap((group: { hooks: { command: string }[] }) =>
+      group.hooks.map((h) => h.command)
     );
     expect(commands.filter((c: string) => c === "openbrain hook session-start")).toHaveLength(1);
   });

@@ -1,9 +1,9 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { constants } from "node:fs";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -25,7 +25,9 @@ afterEach(async () => {
 
 describe("install script", () => {
   test("has valid bash syntax", async () => {
-    await expect(execFileAsync("bash", ["-n", "scripts/install.sh"], { cwd: repoRoot })).resolves.toBeDefined();
+    await expect(
+      execFileAsync("bash", ["-n", "scripts/install.sh"], { cwd: repoRoot })
+    ).resolves.toBeDefined();
   });
 
   test("prints curl install help", async () => {
@@ -53,7 +55,9 @@ describe("install script", () => {
     });
 
     await expect(access(path.join(binDir, "openbrain"), constants.X_OK)).resolves.toBeUndefined();
-    await expect(readFile(path.join(installDir, "package.json"), "utf8")).resolves.toContain("\"name\": \"openbrain\"");
+    await expect(readFile(path.join(installDir, "package.json"), "utf8")).resolves.toContain(
+      '"name": "openbrain"'
+    );
 
     const { stdout } = await execFileAsync(path.join(binDir, "openbrain"), [], {
       env: {

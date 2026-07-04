@@ -217,9 +217,7 @@ export function ftsSearch(db: SqliteDatabase, ftsQuery: string, limit: number) {
 }
 
 function deleteFtsRow(db: SqliteDatabase, id: string) {
-  const rows = db
-    .prepare("SELECT rowid FROM memories_fts WHERE id = ?")
-    .all(id) as Array<{ rowid: number }>;
+  const rows = db.prepare("SELECT rowid FROM memories_fts WHERE id = ?").all(id) as Array<{ rowid: number }>;
   for (const row of rows) {
     db.prepare("DELETE FROM memories_fts WHERE rowid = ?").run(row.rowid);
   }

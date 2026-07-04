@@ -50,13 +50,7 @@ export function renderMemoryMarkdown(record: MemoryRecord) {
     lines.push(`promoteAs: ${record.metadata.promoteAs}`);
   }
 
-  return [
-    ...lines,
-    "---",
-    "",
-    record.body.trim(),
-    ""
-  ].join("\n");
+  return [...lines, "---", "", record.body.trim(), ""].join("\n");
 }
 
 export async function parseMemoryFile(filePath: string, retentionDays = 30): Promise<MemoryRecord> {
@@ -118,7 +112,8 @@ export function memoryMetadataDefaults(
   }
 
   const explicitExpiresAt = normalizeExpiresAt(input.expiresAt);
-  const expiresAt = explicitExpiresAt || (isEpisode ? defaultEpisodeExpiry(createdAt, retentionDays) : undefined);
+  const expiresAt =
+    explicitExpiresAt || (isEpisode ? defaultEpisodeExpiry(createdAt, retentionDays) : undefined);
   if (expiresAt) {
     metadata.expiresAt = expiresAt;
   }
