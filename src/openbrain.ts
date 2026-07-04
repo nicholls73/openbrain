@@ -56,12 +56,12 @@ import type {
   UpdateMemoryInput
 } from "./types.js";
 
-const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
+export const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
 const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
 
 // Stable marker for the Claude Code SessionStart hook command. The adapter keys
 // idempotent settings.json merges off this substring, so it must not change.
-const CLAUDE_HOOK_COMMAND = "openbrain hook session-start";
+export const CLAUDE_HOOK_COMMAND = "openbrain hook session-start";
 
 export async function initOpenBrain(options: OpenBrainOptions = {}) {
   const { options: scopedOptions } = await prepareOpenBrain(options);
@@ -1161,7 +1161,7 @@ async function exists(filePath: string) {
   }
 }
 
-async function memoryFiles(options: OpenBrainOptions) {
+export async function memoryFiles(options: OpenBrainOptions) {
   return [...(await markdownFiles(memoriesDir(options))), ...(await markdownFiles(episodesDir(options)))];
 }
 

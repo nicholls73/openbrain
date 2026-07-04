@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
+import { renderDoctorReport, runDoctor } from "./doctor.js";
 import {
   addBrainPath,
   addMemory,
@@ -96,6 +97,15 @@ async function main(argv: string[]) {
   if (area === "hook" && command === "session-start") {
     const reminder = await runSessionStartHook();
     console.log(reminder);
+    return;
+  }
+
+  if (area === "doctor") {
+    const report = await runDoctor();
+    console.log(renderDoctorReport(report));
+    if (report.failures > 0) {
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -543,6 +553,7 @@ function usage() {
   openbrain memory delete <id>
   openbrain brain current
   openbrain brain add-path <brain> [path]
+  openbrain doctor
   openbrain index rebuild
   openbrain prune`);
 }

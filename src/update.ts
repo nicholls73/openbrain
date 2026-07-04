@@ -4,7 +4,7 @@ import { updateCheckPath } from "./paths.js";
 import type { OpenBrainOptions } from "./types.js";
 
 const PACKAGE_URL = "https://raw.githubusercontent.com/nicholls73/openbrain/main/package.json";
-const INSTALL_COMMAND =
+export const INSTALL_COMMAND =
   "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 1000;
@@ -66,12 +66,12 @@ export function isNewerVersion(candidate: string, current: string) {
   return false;
 }
 
-async function readCurrentVersion() {
+export async function readCurrentVersion() {
   const raw = await readFile(new URL("../package.json", import.meta.url), "utf8");
   return (JSON.parse(raw) as { version: string }).version;
 }
 
-async function fetchLatestVersion(fetchImpl: typeof fetch, packageUrl: string) {
+export async function fetchLatestVersion(fetchImpl: typeof fetch = fetch, packageUrl: string = PACKAGE_URL) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
   timeout.unref?.();
