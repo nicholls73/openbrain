@@ -1,29 +1,30 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import {
-  addMemory,
   addBrainPath,
+  addMemory,
   deleteMemory,
   dreamMaybe,
   dreamRun,
   getCurrentBrain,
   initOpenBrain,
   listMemories,
-  pruneEpisodes,
   promoteMemory,
+  pruneEpisodes,
   rebuildIndex,
   runSessionStartHook,
   searchMemories,
-  showMemory,
   setupOpenBrain,
+  showMemory,
   syncClaudeAgent,
   syncCodexAgent
 } from "./openbrain.js";
+import { claudeSettingsPath } from "./paths.js";
 import {
+  type DurableMemoryType,
   isDurableMemoryType,
   isMemoryType,
   isStoredMemoryType,
-  type DurableMemoryType,
   type MemoryConfidence,
   type MemorySensitivity,
   type MemoryType,
@@ -32,7 +33,6 @@ import {
   type SetupPathRuleInput,
   type StoredMemoryType
 } from "./types.js";
-import { claudeSettingsPath } from "./paths.js";
 import { maybePrintUpdateNotice } from "./update.js";
 
 async function main(argv: string[]) {

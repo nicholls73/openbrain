@@ -148,7 +148,13 @@ export interface DreamSkippedResult {
 export type DreamResult = DreamRunResult | DreamSkippedResult;
 
 export function isMemoryType(value: string | undefined): value is MemoryType {
-  return value === "preference" || value === "workflow" || value === "workspace" || value === "decision" || value === "episode";
+  return (
+    value === "preference" ||
+    value === "workflow" ||
+    value === "workspace" ||
+    value === "decision" ||
+    value === "episode"
+  );
 }
 
 export function isDurableMemoryType(value: string | undefined): value is DurableMemoryType {
