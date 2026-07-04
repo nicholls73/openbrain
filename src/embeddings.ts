@@ -9,7 +9,45 @@ export function createEmbeddingProvider(
     return disabledEmbeddingProvider();
   }
 
-  return options.embedder ?? serialiseEmbeds(new TransformersEmbeddingProvider(config, options));
+  return (
+    options.embedder ??
+    enforceDimensions(
+      serialiseEmbeds(new TransformersEmbeddingProvider(config, options)),
+      config.embeddings.dimensions
+    )
+  );
+}
+
+// config.embeddings.dimensions declares the model's output size. Enforcing it
+// at the provider boundary keeps mixed-dimension embeddings out of the index
+// when someone swaps the model without updating the config, and turns that
+// mistake into one actionable warning instead of silently broken search.
+export function enforceDimensions(provider: EmbeddingProvider, dimensions: number): EmbeddingProvider {
+  let warned = false;
+  const enforced: EmbeddingProvider = {
+    async embed(text: string) {
+      const embedding = await provider.embed(text);
+      if (embedding && embedding.length !== dimensions) {
+        if (!warned) {
+          warned = true;
+          console.warn(
+            `openbrain: the embedding model returned ${embedding.length} dimensions but ` +
+              `config.embeddings.dimensions is ${dimensions}; ignoring these embeddings. ` +
+              `Update embeddings.dimensions to match the model, then run "openbrain index rebuild".`
+          );
+        }
+        return null;
+      }
+      return embedding;
+    }
+  };
+  if (provider.ready) {
+    enforced.ready = () => provider.ready!();
+  }
+  if (provider.disabled) {
+    enforced.disabled = provider.disabled;
+  }
+  return enforced;
 }
 
 // The local runtime offers no way to abort an inference once started, so a
