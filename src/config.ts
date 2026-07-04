@@ -20,7 +20,8 @@ export const DEFAULT_CONFIG: OpenBrainConfig = {
     enabled: true,
     model: "sentence-transformers/all-MiniLM-L6-v2",
     dimensions: 384,
-    timeoutMs: 5000
+    timeoutMs: 5000,
+    loadTimeoutMs: 30000
   },
   retrieval: {
     limit: 5

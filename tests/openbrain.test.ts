@@ -547,6 +547,38 @@ describe("OpenBrain local storage", () => {
     expect(results[0]?.excerpt.startsWith("12345678 alpha")).toBe(true);
   });
 
+  test("warns when query embedding fails so FTS-only degradation is visible", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Deploy with the release checklist." }, options(home));
+    const failingEmbedder: EmbeddingProvider = {
+      async embed() {
+        throw new Error("model unavailable");
+      }
+    };
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const results = await searchMemories("release checklist", options(home, failingEmbedder));
+      expect(results).toHaveLength(1);
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("FTS-only");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("does not warn about FTS-only results when embeddings are disabled", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Deploy with the release checklist." }, options(home));
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await searchMemories("release checklist", options(home));
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).not.toContain("FTS-only");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test("warns and defaults invalid metadata instead of silently dropping it", async () => {
     const home = await tempHome();
     await initOpenBrain(options(home));
