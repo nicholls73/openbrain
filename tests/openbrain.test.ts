@@ -901,7 +901,7 @@ describe("OpenBrain local storage", () => {
     expect((await searchMemories("deployment", options(home, embedder)))[0]?.match).toBe("hybrid");
   });
 
-  test("rebuild embeds each memory exactly once with a shared embedder", async () => {
+  test("rebuild reuses stored embeddings and re-embeds only changed memories", async () => {
     const home = await tempHome();
     let embedCalls = 0;
     const embedder: EmbeddingProvider = {
@@ -911,13 +911,27 @@ describe("OpenBrain local storage", () => {
       }
     };
     await initOpenBrain(options(home, embedder));
-    await addMemory({ type: "workflow", text: "first durable memory" }, options(home, embedder));
+    const first = await addMemory(
+      { type: "workflow", text: "first durable memory" },
+      options(home, embedder)
+    );
     await addMemory({ type: "decision", text: "second durable memory" }, options(home, embedder));
 
+    // Unchanged memories keep their stored embeddings: the daily dream's
+    // rebuild must not re-embed the whole brain at session start.
     embedCalls = 0;
     await rebuildIndex(options(home, embedder));
+    expect(embedCalls).toBe(0);
 
-    expect(embedCalls).toBe(2);
+    // Editing a body invalidates only that memory's stored embedding.
+    const raw = await readFile(first.path, "utf8");
+    await writeFile(first.path, `${raw}Edited detail.\n`, "utf8");
+    embedCalls = 0;
+    await rebuildIndex(options(home, embedder));
+    expect(embedCalls).toBe(1);
+
+    const results = await searchMemories("edited detail", options(home, embedder));
+    expect(results[0]?.id).toBe(first.id);
   });
 
   test("prune removes old episode logs without deleting durable memories", async () => {
