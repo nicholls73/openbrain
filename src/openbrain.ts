@@ -78,10 +78,17 @@ export async function setupOpenBrain(
   await mkdir(openBrainHome(options), { recursive: true });
   const pathRules: SetupResult["pathRules"] = [];
 
+  const codexDetected = await detectCodexAgent(options);
+  const claudeDetected = await detectClaudeAgent(options);
+  const syncCodex = input.syncCodex ?? codexDetected;
+  const syncClaude = input.syncClaude ?? claudeDetected;
+
   if (input.brainScope === "default") {
     const config = await updateConfig((config) => {
       config.brains.unmatched = "default";
       config.brains.pathRules = [];
+      config.agents.codex.enabled = syncCodex;
+      config.agents.claude.enabled = syncClaude;
     }, options);
     await initOpenBrain({ ...options, brain: config.brains.default });
   } else {
@@ -91,6 +98,8 @@ export async function setupOpenBrain(
     await updateConfig((config) => {
       config.brains.unmatched = "ask";
       config.brains.pathRules = [];
+      config.agents.codex.enabled = syncCodex;
+      config.agents.claude.enabled = syncClaude;
     }, options);
 
     for (const rule of input.pathRules) {
@@ -100,8 +109,8 @@ export async function setupOpenBrain(
     }
   }
 
-  const codexAgentFile = input.syncCodex ? await syncCodexAgent(options) : undefined;
-  const claudeAgentFile = input.syncClaude ? await syncClaudeAgent(options) : undefined;
+  const codexAgentFile = syncCodex ? await syncCodexAgent(options) : undefined;
+  const claudeAgentFile = syncClaude ? await syncClaudeAgent(options) : undefined;
   const currentBrain =
     input.brainScope === "paths"
       ? await getCurrentBrain({ ...options, cwd: pathRules[0]!.path })
@@ -111,10 +120,31 @@ export async function setupOpenBrain(
     brainScope: input.brainScope,
     currentBrain,
     pathRules,
+    codexDetected,
+    claudeDetected,
     codexAgentFile,
     claudeAgentFile,
-    claudeSettingsFile: input.syncClaude ? claudeSettingsPath(options) : undefined
+    claudeSettingsFile: syncClaude ? claudeSettingsPath(options) : undefined
   };
+}
+
+// Detection is deliberately just "does the agent's config directory exist".
+// Both CLIs create their directory on first run, and it is the same location
+// the adapters write to, so it never force-creates config for an absent agent.
+export async function detectCodexAgent(options: OpenBrainOptions = {}) {
+  return directoryExists(codexHome(options));
+}
+
+export async function detectClaudeAgent(options: OpenBrainOptions = {}) {
+  return directoryExists(claudeHome(options));
+}
+
+async function directoryExists(dir: string) {
+  try {
+    return (await stat(dir)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export async function getBrainStatus(options: OpenBrainOptions = {}): Promise<BrainStatus> {

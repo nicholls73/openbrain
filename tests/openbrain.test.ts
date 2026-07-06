@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -441,6 +441,58 @@ describe("OpenBrain local storage", () => {
     await expect(readFile(path.join(claudeHome, "CLAUDE.md"), "utf8")).resolves.toContain("BEGIN OPENBRAIN");
   });
 
+  test("setup auto-detects agents from their config directories when no flags are given", async () => {
+    const home = await tempHome();
+    const codexHome = path.join(home, ".codex");
+    const claudeHome = path.join(home, ".claude");
+    await mkdir(codexHome, { recursive: true });
+
+    const result = await setupOpenBrain(
+      { brainScope: "default" },
+      { ...options(home), codexHome, claudeHome }
+    );
+    const config = await loadConfig(options(home));
+
+    expect(result).toMatchObject({
+      codexDetected: true,
+      claudeDetected: false,
+      codexAgentFile: path.join(codexHome, "AGENTS.md"),
+      claudeAgentFile: undefined,
+      claudeSettingsFile: undefined
+    });
+    expect(config.agents.codex.enabled).toBe(true);
+    expect(config.agents.claude.enabled).toBe(false);
+    await expect(readFile(path.join(codexHome, "AGENTS.md"), "utf8")).resolves.toContain("BEGIN OPENBRAIN");
+    await expect(stat(path.join(claudeHome, "CLAUDE.md"))).rejects.toThrow();
+  });
+
+  test("setup flags override agent detection in both directions", async () => {
+    const home = await tempHome();
+    const codexHome = path.join(home, ".codex");
+    const claudeHome = path.join(home, ".claude");
+    await mkdir(codexHome, { recursive: true });
+
+    const result = await setupOpenBrain(
+      {
+        brainScope: "default",
+        syncCodex: false,
+        syncClaude: true
+      },
+      { ...options(home), codexHome, claudeHome }
+    );
+    const config = await loadConfig(options(home));
+
+    expect(result).toMatchObject({
+      codexDetected: true,
+      claudeDetected: false,
+      codexAgentFile: undefined,
+      claudeAgentFile: path.join(claudeHome, "CLAUDE.md")
+    });
+    expect(config.agents.codex.enabled).toBe(false);
+    expect(config.agents.claude.enabled).toBe(true);
+    await expect(stat(path.join(codexHome, "AGENTS.md"))).rejects.toThrow();
+  });
+
   test("guided setup can configure path-specific brains and ask on unmatched paths", async () => {
     const home = await tempHome();
     const projectPath = path.join(home, "projects", "alpha");
@@ -454,7 +506,8 @@ describe("OpenBrain local storage", () => {
             path: projectPath
           }
         ],
-        syncCodex: false
+        syncCodex: false,
+        syncClaude: false
       },
       options(home)
     );
