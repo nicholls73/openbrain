@@ -188,11 +188,28 @@ async function setupCommand(args: string[]) {
   for (const rule of result.pathRules) {
     console.log(`Path rule: ${rule.brain}\t${rule.path}`);
   }
-  console.log(`Codex: ${result.codexAgentFile ? result.codexAgentFile : "not synced"}`);
-  console.log(`Claude: ${result.claudeAgentFile ? result.claudeAgentFile : "not synced"}`);
+  console.log(`Codex: ${agentSyncSummary("Codex", "--codex", result.codexAgentFile, input.syncCodex)}`);
+  console.log(
+    `Claude: ${agentSyncSummary("Claude Code", "--claude", result.claudeAgentFile, input.syncClaude)}`
+  );
   if (result.claudeSettingsFile) {
     console.log(`Claude hook: ${result.claudeSettingsFile}`);
   }
+}
+
+function agentSyncSummary(
+  agent: string,
+  flag: string,
+  file: string | undefined,
+  requested: boolean | undefined
+) {
+  if (file) {
+    return requested === undefined ? `${file} (auto-detected)` : file;
+  }
+  if (requested === false) {
+    return `not synced (${flag} no)`;
+  }
+  return `not synced (${agent} not detected; pass ${flag} yes to sync anyway)`;
 }
 
 async function readSetupInput(args: string[]): Promise<SetupInput> {
@@ -205,18 +222,23 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
     throw new Error("setup --brain-scope must be default or paths");
   }
 
-  if (brainScope && codex) {
+  // Agent integrations are auto-detected, never asked. The flags exist only to
+  // override detection, so leaving them undefined here means "detect".
+  const syncCodex = codex ? parseYesNo(codex, "--codex") : undefined;
+  const syncClaude = claude ? parseYesNo(claude, "--claude") : undefined;
+
+  if (brainScope) {
     return {
       brainScope,
       pathRules,
-      syncCodex: parseYesNo(codex, "--codex"),
-      syncClaude: claude ? parseYesNo(claude, "--claude") : false
+      syncCodex,
+      syncClaude
     };
   }
 
   if (!process.stdin.isTTY) {
     throw new Error(
-      "setup needs answers. Run interactively, or pass --brain-scope default|paths, --codex yes|no, and optionally --claude yes|no."
+      "setup needs answers. Run interactively, or pass --brain-scope default|paths (with --path-rule for paths). Agent integrations are auto-detected; override with --codex yes|no or --claude yes|no."
     );
   }
 
@@ -225,19 +247,15 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
     output: process.stdout
   });
   try {
-    const resolvedScope = brainScope ?? (await askBrainScope(prompt));
+    const resolvedScope = await askBrainScope(prompt);
     const resolvedPathRules =
       resolvedScope === "paths" && pathRules.length === 0 ? await askPathRules(prompt) : pathRules;
-    const resolvedCodex = codex ? parseYesNo(codex, "--codex") : await askYesNo(prompt, "Sync Codex? [Y/n] ");
-    const resolvedClaude = claude
-      ? parseYesNo(claude, "--claude")
-      : await askYesNo(prompt, "Sync Claude Code? [y/N] ", false);
 
     return {
       brainScope: resolvedScope,
       pathRules: resolvedPathRules,
-      syncCodex: resolvedCodex,
-      syncClaude: resolvedClaude
+      syncCodex,
+      syncClaude
     };
   } finally {
     prompt.close();
@@ -572,6 +590,7 @@ function usage() {
   console.log(`Usage:
   openbrain init
   openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no]
+      (agent integrations are auto-detected; --codex/--claude override detection)
   openbrain agents sync codex|claude
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]

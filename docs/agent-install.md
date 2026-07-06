@@ -30,26 +30,28 @@ $HOME/.local/bin
 
 ## Setup Questions
 
-Ask this first:
+Ask only one question: brain scope.
 
 1. One brain for the whole computer.
 2. Separate memory containers for specific workspace paths.
 
+Do not ask which agents to integrate. Setup detects installed agents from their config directories (`~/.codex`, `~/.claude`, honouring `CODEX_HOME` and `CLAUDE_CONFIG_DIR`) and syncs adapters for the detected ones.
+
 If the user chooses one brain, run:
 
 ```bash
-openbrain setup --brain-scope default --codex yes --claude yes
+openbrain setup --brain-scope default
 ```
 
 If the user chooses separate memory containers, ask for brain/path pairs. Do not suggest container names. Paths only choose the active brain; the brain is the memory container. Then run:
 
 ```bash
-openbrain setup --brain-scope paths --path-rule <brain>=<path> --codex yes --claude yes
+openbrain setup --brain-scope paths --path-rule <brain>=<path>
 ```
 
 Repeat `--path-rule <brain>=<path>` for each pair the user gives you.
 
-If the user does not want Codex integration, use `--codex no`. If the user does not want Claude Code integration, use `--claude no`.
+Only pass `--codex yes|no` or `--claude yes|no` if the user explicitly asks to skip a detected agent or to integrate an agent that setup did not detect.
 
 If you cannot collect choices through chat or native question UI, run interactive setup:
 
@@ -69,7 +71,7 @@ Confirm that each workspace path resolves to the expected active brain.
 
 ## Agent Setup
 
-OpenBrain currently ships Codex and Claude Code adapters. `openbrain setup --codex yes --claude yes` writes them.
+OpenBrain currently ships Codex and Claude Code adapters. `openbrain setup` writes them for the agents it detects, and its output states which agents were detected and which files were written. Report that to the user, including the `~/.claude/settings.json` hook if it was installed.
 
 The Codex adapter writes an instruction block to `AGENTS.md`. The Claude Code adapter writes the same instruction block to `CLAUDE.md` and also installs a `SessionStart` hook in `~/.claude/settings.json` (honouring `CLAUDE_CONFIG_DIR`). The hook runs `openbrain hook session-start`, which performs daily dreaming and prints a reminder to search memory before tasks and record it after. The instruction block alone is advisory, so the hook is what makes Claude Code use OpenBrain on every session. The merge preserves existing settings and hooks and is idempotent across re-syncs.
 

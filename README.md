@@ -81,12 +81,17 @@ Check which active brain the current workspace path will use:
 openbrain brain current
 ```
 
-If you already know the choices, setup can be non-interactive:
+Setup detects which agents are installed (by their config directories, `~/.codex` and `~/.claude`) and syncs adapters for those automatically. If you already know the brain choices, setup can be non-interactive:
 
 ```bash
-openbrain setup --brain-scope default --codex yes
-openbrain setup --brain-scope paths --path-rule brain-a=/Users/you/path-a --codex yes
-openbrain setup --brain-scope default --codex yes --claude yes
+openbrain setup --brain-scope default
+openbrain setup --brain-scope paths --path-rule brain-a=/Users/you/path-a
+```
+
+To override detection, pass `--codex yes|no` or `--claude yes|no`, for example to skip a detected agent or force one that has not been run yet:
+
+```bash
+openbrain setup --brain-scope default --codex no --claude yes
 ```
 
 To add Claude Code after an existing setup:

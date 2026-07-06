@@ -83,7 +83,8 @@ export interface SetupPathRuleInput {
 export interface SetupInput {
   brainScope: "default" | "paths";
   pathRules?: SetupPathRuleInput[];
-  syncCodex: boolean;
+  // undefined means auto-detect from the agent's config directory.
+  syncCodex?: boolean;
   syncClaude?: boolean;
 }
 
@@ -91,6 +92,8 @@ export interface SetupResult {
   brainScope: SetupInput["brainScope"];
   currentBrain: string;
   pathRules: SetupPathRuleInput[];
+  codexDetected: boolean;
+  claudeDetected: boolean;
   codexAgentFile?: string;
   claudeAgentFile?: string;
   claudeSettingsFile?: string;
