@@ -67,7 +67,7 @@ describe("install script", () => {
 
     await expect(access(path.join(binDir, "openbrain"), constants.X_OK)).resolves.toBeUndefined();
     await expect(readFile(path.join(installDir, "package.json"), "utf8")).resolves.toContain(
-      '"name": "openbrain"'
+      '"name": "@nicholls73/openbrain"'
     );
 
     const { stdout } = await execFileAsync(path.join(binDir, "openbrain"), [], {
