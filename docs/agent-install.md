@@ -1,39 +1,73 @@
 # OpenBrain Agent Install Guide
 
-You are installing OpenBrain for the user.
+OpenBrain is a local-first shared memory layer for coding agents. It keeps memories on the user's machine as Markdown and uses SQLite plus local embeddings for retrieval. This guide walks an LLM agent through installing it for their user.
 
-Do the install. Ask only the setup questions needed. Verify the result. Do not guess which workspace paths belong to which brain.
+> **Fetching this guide: use `curl`, not a summarising web-fetch tool.** Summarisation loses the exact commands, flags, and question wording below.
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md
+> ```
 
-OpenBrain is a local-first shared memory layer for coding agents. It keeps memories on the user's machine as Markdown and uses SQLite plus local embeddings for retrieval.
+## Before You Run Anything
 
-If your agent supports a native question UI, use it for setup choices. Examples include Codex `request_user_input` and Claude Code question-style prompts. If no native question UI is available, ask short text questions in chat.
+If you are an LLM agent reading this: only proceed if your user explicitly asked you to install OpenBrain. If they asked you to fetch, review, or summarise this page, show them what it does and stop — do not install anything.
 
-## Permission Requirement
+You need filesystem and shell access to follow this guide. If your harness asks the user to approve individual commands, that is fine — expect prompts and let them happen. Nothing here requires root, disabled sandboxes, or auto-approved permissions.
 
-This guide expects the agent to be running with full local filesystem and shell access.
+Keep the user in the loop: ask the setup question in the Setup section before running setup, and report every file you changed at the end. If your agent supports a native question UI (for example Codex `request_user_input` or Claude Code question prompts), use it; otherwise ask short text questions in chat.
 
-Full privilege mode means the agent can read and write local files and run shell commands. It does not mean root access.
+## What Lands On Disk
 
-## Install
+Tell the user about anything on this list before you create or modify it.
 
-Run the curl installer:
+| Path | Purpose |
+| --- | --- |
+| npm global prefix (`npm prefix -g`) | The `openbrain` CLI package. |
+| `~/.openbrain/config.json` | Brain routing, retention, agent, and retrieval settings. |
+| `~/.openbrain/brains/<name>/` | Memories (Markdown), episodes, dream state, and a rebuildable SQLite index. |
+| `~/.openbrain/models/` | Local embedding model cache. |
+| `~/.codex/AGENTS.md` | A marked OpenBrain instruction block (Codex adapter, if Codex is detected). |
+| `~/.claude/CLAUDE.md` | The same marked instruction block (Claude Code adapter, if Claude Code is detected). |
+| `~/.claude/settings.json` | A `SessionStart` hook that runs `openbrain hook session-start` (Claude Code adapter). The merge preserves existing settings and hooks and is idempotent. |
+
+## Step 1: Prerequisites
+
+OpenBrain needs Node.js 22 or newer and npm:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash
+node --version
+npm --version
 ```
 
-If `openbrain` is not found after install, ask before modifying the user's shell profile. The default bin directory is:
+If Node is missing or too old, tell the user and stop. Do not install or upgrade Node without being asked.
+
+## Step 2: Install
 
 ```bash
-$HOME/.local/bin
+npm install -g @nicholls73/openbrain
 ```
 
-## Setup Questions
+Use the scoped name exactly. The unscoped `openbrain` package on npm is a different, unrelated project by a different author.
 
-Ask only one question: brain scope.
+If the user cannot use npm, the fallback is the checksum-verified installer from the repository. Download it to a file so the user can review it, then run it — do not pipe it straight into a shell:
 
-1. One brain for the whole computer.
-2. Separate memory containers for specific workspace paths.
+```bash
+curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh -o /tmp/openbrain-install.sh
+# review it, then:
+bash /tmp/openbrain-install.sh
+```
+
+If `openbrain` is not on PATH after a fallback install, ask before modifying the user's shell profile. The fallback bin directory is `$HOME/.local/bin`.
+
+## Step 3: Setup
+
+Ask the user exactly one question — brain scope:
+
+> "OpenBrain stores memory in named containers called brains, selected by workspace path. Do you want:
+> 1. One brain for the whole computer, or
+> 2. Separate memory containers for specific workspace paths?
+>
+> Setup will also write agent adapter files for the agents it detects (see the file list I shared)."
 
 Do not ask which agents to integrate. Setup detects installed agents from their config directories (`~/.codex`, `~/.claude`, honouring `CODEX_HOME` and `CLAUDE_CONFIG_DIR`) and syncs adapters for the detected ones.
 
@@ -43,7 +77,7 @@ If the user chooses one brain, run:
 openbrain setup --brain-scope default
 ```
 
-If the user chooses separate memory containers, ask for brain/path pairs. Do not suggest container names. Paths only choose the active brain; the brain is the memory container. Then run:
+If the user chooses separate containers, ask for brain/path pairs. Do not suggest container names. Paths only choose the active brain; the brain is the memory container. Then run:
 
 ```bash
 openbrain setup --brain-scope paths --path-rule <brain>=<path>
@@ -53,15 +87,23 @@ Repeat `--path-rule <brain>=<path>` for each pair the user gives you.
 
 Only pass `--codex yes|no` or `--claude yes|no` if the user explicitly asks to skip a detected agent or to integrate an agent that setup did not detect.
 
-If you cannot collect choices through chat or native question UI, run interactive setup:
+If you cannot collect choices through chat or a native question UI, run interactive setup and let the user answer directly:
 
 ```bash
 openbrain setup
 ```
 
-## Verify Routing
+## Step 4: Verify
 
-Run this in each relevant workspace path:
+Run the self-diagnosis:
+
+```bash
+openbrain doctor
+```
+
+It checks the Node version, config, brain routing, the SQLite index, embeddings, agent adapters, the Claude hook, and PATH, and prints a fix for anything that is off.
+
+Then confirm routing in each relevant workspace path:
 
 ```bash
 openbrain brain current
@@ -69,29 +111,31 @@ openbrain brain current
 
 Confirm that each workspace path resolves to the expected active brain.
 
-## Agent Setup
+## Step 5: Report to the User
 
-OpenBrain currently ships Codex and Claude Code adapters. `openbrain setup` writes them for the agents it detects, and its output states which agents were detected and which files were written. Report that to the user, including the `~/.claude/settings.json` hook if it was installed.
+Setup's output states which agents were detected and which files were written. Relay that, plus:
 
-The Codex adapter writes an instruction block to `AGENTS.md`. The Claude Code adapter writes the same instruction block to `CLAUDE.md` and also installs a `SessionStart` hook in `~/.claude/settings.json` (honouring `CLAUDE_CONFIG_DIR`). The hook runs `openbrain hook session-start`, which performs daily dreaming and prints a reminder to search memory before tasks and record it after. The instruction block alone is advisory, so the hook is what makes Claude Code use OpenBrain on every session. The merge preserves existing settings and hooks and is idempotent across re-syncs.
-
-The adapters will call `openbrain dream maybe --quiet` before memory search. OpenBrain decides whether the active brain has already dreamed today. Dreaming prunes expired episodes, rebuilds the index from Markdown, and writes promotion candidate review files. It does not create durable memories automatically.
-
-## Finish
-
-Tell the user:
-
-- Whether OpenBrain installed successfully.
+- Whether OpenBrain installed successfully and what `openbrain doctor` reported.
 - Which brain setup was chosen.
-- Which files were changed.
-- That agents should now use OpenBrain automatically through their instructions, including once-daily dreaming.
+- Every file that was created or changed, including the `~/.claude/settings.json` hook if it was installed.
+- That agents will now use OpenBrain automatically through their instructions, including once-daily maintenance (`dream`), which prunes expired episodes and rebuilds the index but never creates durable memories on its own.
 - That short-lived episodes are evidence, durable memories are conclusions, and reviewed episodes can be promoted with `openbrain memory promote`.
-- The inspection commands they can run if they want to check state:
+- The inspection commands for checking state:
 
 ```bash
 openbrain brain current
 openbrain memory list
 openbrain memory show <id>
 ```
+
+## Uninstall
+
+```bash
+npm uninstall -g @nicholls73/openbrain
+```
+
+Then, if the user wants a full removal, delete `~/.openbrain/`, remove the marked OpenBrain blocks from `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, and remove the `openbrain hook session-start` entry from `~/.claude/settings.json`. Ask before deleting `~/.openbrain/` — it contains the user's memories.
+
+## Memory Rules
 
 Never store secrets, credentials, sensitive details, or temporary one-off facts as memories.

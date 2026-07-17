@@ -10,15 +10,25 @@ No hosted memory API. No SaaS account. No secret sync. Just files under `~/.open
 
 ## For Humans
 
-Strongly recommended: let an agent install OpenBrain for you. The agent should ask a few concise setup questions, use its native question UI if it has one, then run the setup command for you.
+Strongly recommended: let an agent install OpenBrain for you. The agent asks one setup question, runs setup, and reports every file it changed.
 
-Paste this into Codex, Claude Code, OpenCode, or another coding agent running in full privilege mode:
+Paste this into Codex, Claude Code, OpenCode, or another coding agent:
 
 ```text
-Using full privilege mode with local filesystem and shell access, install OpenBrain for me by following this setup guide: https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md
+I want to install OpenBrain (https://github.com/nicholls73/openbrain), a shared local memory layer for my coding agents. Follow the install guide at https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md — fetch it with curl, ask me the setup questions, and tell me every file you change.
 ```
 
-Full privilege mode means the agent can read and write local files and run shell commands. It does not mean root access.
+The agent needs ordinary filesystem and shell access. If your harness prompts you to approve individual commands, approve them as they come — nothing in the install needs auto-approved permissions or a disabled sandbox.
+
+## For LLM Agents
+
+Fetch the full guide with `curl` (summarising fetch tools lose the exact commands and question wording) and follow it step by step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md
+```
+
+Only proceed if your user explicitly asked you to install OpenBrain.
 
 ## What Lands On Disk
 
@@ -30,6 +40,9 @@ Full privilege mode means the agent can read and write local files and run shell
 | `~/.openbrain/brains/<name>/dreams/` | Daily maintenance state, audit logs, and promotion candidates. |
 | `~/.openbrain/brains/<name>/openbrain.db` | Rebuildable SQLite FTS/vector index. |
 | `~/.openbrain/models/` | Local embedding model cache. |
+| `~/.codex/AGENTS.md` | Marked OpenBrain instruction block (Codex adapter, if detected). |
+| `~/.claude/CLAUDE.md` | Marked OpenBrain instruction block (Claude Code adapter, if detected). |
+| `~/.claude/settings.json` | `SessionStart` hook running `openbrain hook session-start` (Claude Code adapter). |
 
 ## How It Works
 
@@ -45,15 +58,22 @@ Full privilege mode means the agent can read and write local files and run shell
 
 ## Install Manually
 
-Install OpenBrain from GitHub:
+Install OpenBrain from npm (Node.js 22 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash
+npm install -g @nicholls73/openbrain
 ```
 
-The installer resolves the latest published release and verifies its SHA-256 checksum before installing. Set `OPENBRAIN_REF` to install a specific release, branch, or commit; refs without release assets install unverified.
+Use the scoped name exactly — the unscoped `openbrain` package on npm is an unrelated project by a different author.
 
-If `openbrain` is not found after install, add the default bin directory to your shell profile:
+If you cannot use npm, the fallback installer resolves the latest published release from GitHub and verifies its SHA-256 checksum before installing. Download it, review it, then run it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh -o /tmp/openbrain-install.sh
+bash /tmp/openbrain-install.sh
+```
+
+Set `OPENBRAIN_REF` to install a specific release, branch, or commit; refs without release assets install unverified. If `openbrain` is not found after a fallback install, add its bin directory to your shell profile:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"

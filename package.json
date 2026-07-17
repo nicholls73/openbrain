@@ -1,7 +1,7 @@
 {
   "name": "@nicholls73/openbrain",
   "version": "0.5.0",
-  "description": "Local-first shared memory layer for coding agents.",
+  "description": "🧠 Local-first shared memory layer for coding agents.",
   "license": "MIT",
   "repository": "github:nicholls73/openbrain",
   "type": "module",
