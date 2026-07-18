@@ -8,17 +8,24 @@ You switch between Codex, Claude Code, OpenCode, and whatever comes next. They a
 
 No hosted memory API. No SaaS account. No secret sync. Just files under `~/.openbrain/`.
 
-## For Humans
+## Install
 
-Strongly recommended: let an agent install OpenBrain for you. The agent asks one setup question, runs setup, and reports every file it changed.
+OpenBrain requires Node.js 22 or newer. Install the CLI from npm, then run guided setup:
 
-Paste this into Codex, Claude Code, OpenCode, or another coding agent:
-
-```text
-I want to install OpenBrain (https://github.com/nicholls73/openbrain), a shared local memory layer for my coding agents. Follow the install guide at https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md — fetch it with curl, ask me the setup questions, and tell me every file you change.
+```bash
+npm install -g @nicholls73/openbrain
+openbrain setup
 ```
 
-The agent needs ordinary filesystem and shell access. If your harness prompts you to approve individual commands, approve them as they come — nothing in the install needs auto-approved permissions or a disabled sandbox.
+Use the scoped name exactly — the unscoped `openbrain` package on npm is an unrelated project by a different author.
+
+You can also point a coding agent at this repository and ask it to install OpenBrain, or paste this more explicit prompt into Codex, Claude Code, OpenCode, or another coding agent:
+
+```text
+Install OpenBrain from https://github.com/nicholls73/openbrain. Follow its agent install guide, use the preferred npm installation, ask me the setup question, and tell me every file you change.
+```
+
+The agent needs ordinary filesystem and shell access. The repository's [agent install guide](docs/agent-install.md) contains the exact setup question and commands. If your harness prompts you to approve individual commands, approve them as they come — nothing in the install needs auto-approved permissions or a disabled sandbox.
 
 ## For LLM Agents
 
@@ -27,6 +34,8 @@ Fetch the full guide with `curl` (summarising fetch tools lose the exact command
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/docs/agent-install.md
 ```
+
+This fetches the instructions; the guide installs the CLI from npm.
 
 Only proceed if your user explicitly asked you to install OpenBrain.
 
@@ -56,15 +65,7 @@ Only proceed if your user explicitly asked you to install OpenBrain.
 - The current adapters sync a marked OpenBrain block into `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`. The Claude Code adapter also installs a `SessionStart` hook in `~/.claude/settings.json` that runs `openbrain hook session-start`, so Claude Code dreams and is reminded to search memory on every session instead of relying on the advisory block.
 - Episodes can be marked as promotion candidates; `dream` writes review files but does not create durable memory automatically.
 
-## Install Manually
-
-Install OpenBrain from npm (Node.js 22 or newer):
-
-```bash
-npm install -g @nicholls73/openbrain
-```
-
-Use the scoped name exactly — the unscoped `openbrain` package on npm is an unrelated project by a different author.
+## Fallback Installer
 
 If you cannot use npm, the fallback installer resolves the latest published release from GitHub and verifies its SHA-256 checksum before installing. Download it, review it, then run it:
 
