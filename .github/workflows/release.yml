@@ -5,27 +5,74 @@ on:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  repository_dispatch:
+    types: [approved-release]
 
 concurrency:
-  group: release
+  group: ${{ github.event_name == 'workflow_run' && 'release-approval' || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_run' }}
 
 jobs:
+  approve:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Start approved release
+        env:
+          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=approved-release -f "client_payload[sha]=${APPROVED_SHA}"
+
   release:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha
+    if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
       pull-requests: write
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.finalize.outputs.release_created }}
+      tag_name: ${{ steps.finalize.outputs.tag_name }}
     steps:
+      - name: Verify approved main commit
+        env:
+          APPROVED_SHA: ${{ github.event.client_payload.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          if [[ "${current_sha}" != "${APPROVED_SHA}" ]]; then
+            echo "::error::main changed after approval; approve the latest Release run"
+            exit 1
+          fi
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
-        id: release
+        id: prepare
         with:
           release-type: node
           target-branch: main
+      - name: Merge approved release PR
+        if: steps.prepare.outputs.prs_created == 'true'
+        env:
+          APPROVED_SHA: ${{ github.event.client_payload.sha }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
+        run: |
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          if [[ "${current_sha}" != "${APPROVED_SHA}" ]]; then
+            echo "::error::main changed after approval; approve the latest Release run"
+            exit 1
+          fi
+          pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
+          gh pr merge "${pr_number}" --repo "${GITHUB_REPOSITORY}" --merge
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: finalize
+        if: steps.prepare.outputs.prs_created == 'true'
+        with:
+          release-type: node
+          target-branch: main
+          skip-github-pull-request: true
 
   publish:
     needs: release
