@@ -8,24 +8,41 @@ on:
 
 concurrency:
   group: release
+  cancel-in-progress: true
 
 jobs:
   release:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       issues: write
       pull-requests: write
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.finalize.outputs.release_created }}
+      tag_name: ${{ steps.finalize.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
-        id: release
+        id: prepare
         with:
           release-type: node
           target-branch: main
+      - name: Merge approved release PR
+        if: steps.prepare.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
+        run: |
+          pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
+          gh pr merge "${pr_number}" --repo "${GITHUB_REPOSITORY}" --merge
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: finalize
+        if: steps.prepare.outputs.prs_created == 'true'
+        with:
+          release-type: node
+          target-branch: main
+          skip-github-pull-request: true
 
   publish:
     needs: release
