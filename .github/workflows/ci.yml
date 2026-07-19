@@ -27,6 +27,14 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
+  test-ci:
+    name: Test CI
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = success
+
   embeddings-integration:
     runs-on: ubuntu-latest
     steps:
