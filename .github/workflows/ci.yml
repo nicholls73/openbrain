@@ -9,23 +9,54 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22, 24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm test
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test on Node 22
+        run: pnpm test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm rebuild better-sqlite3
+      - name: Test on Node 24
+        run: pnpm test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: pnpm rebuild better-sqlite3
+      - name: Test on Node 26
+        run: pnpm test
 
   embeddings-integration:
     runs-on: ubuntu-latest
