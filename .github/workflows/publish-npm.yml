@@ -6,12 +6,6 @@ on:
     types: [completed]
     branches: [main]
 
-permissions:
-  contents: write
-  id-token: write
-  issues: write
-  pull-requests: write
-
 concurrency:
   group: release
 
@@ -19,38 +13,47 @@ jobs:
   release:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
           release-type: node
           target-branch: main
-      - uses: actions/checkout@v6
-        if: steps.release.outputs.release_created == 'true'
+
+  publish:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: ${{ steps.release.outputs.tag_name }}
+          ref: ${{ needs.release.outputs.tag_name }}
       - name: Build release archive
-        if: steps.release.outputs.release_created == 'true'
         run: |
-          tag="${{ steps.release.outputs.tag_name }}"
+          tag="${{ needs.release.outputs.tag_name }}"
           git archive --format=tar.gz --prefix "openbrain-${tag}/" -o "openbrain-${tag}.tar.gz" "${tag}"
           shasum -a 256 "openbrain-${tag}.tar.gz" > "openbrain-${tag}.tar.gz.sha256"
-      - uses: pnpm/action-setup@v4
-        if: steps.release.outputs.release_created == 'true'
-      - uses: actions/setup-node@v6
-        if: steps.release.outputs.release_created == 'true'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - if: steps.release.outputs.release_created == 'true'
-        run: pnpm install --frozen-lockfile
-      - if: steps.release.outputs.release_created == 'true'
-        run: npm publish --access public
+      - run: pnpm install --frozen-lockfile
+      - run: npm publish --access public
       - name: Upload release archive
-        if: steps.release.outputs.release_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ steps.release.outputs.tag_name }}"
+          tag="${{ needs.release.outputs.tag_name }}"
           gh release upload "${tag}" "openbrain-${tag}.tar.gz" "openbrain-${tag}.tar.gz.sha256"
