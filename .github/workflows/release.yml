@@ -1,4 +1,5 @@
 name: Release
+run-name: ${{ github.event_name == 'repository_dispatch' && format('Release v{0}', github.event.client_payload.version) || 'Release approval' }}
 
 on:
   workflow_run:
@@ -19,12 +20,33 @@ jobs:
     environment: release
     permissions:
       contents: write
+      issues: write
+      pull-requests: write
     steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: prepare
+        with:
+          release-type: node
+          target-branch: main
       - name: Start approved release
+        if: steps.prepare.outputs.prs_created == 'true'
         env:
           APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ github.token }}
-        run: gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=approved-release -f "client_payload[sha]=${APPROVED_SHA}"
+          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
+        run: |
+          pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
+          pr_head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.sha')"
+          version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${pr_head_sha}" --jq '.version')"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release Please produced an invalid version: ${version}"
+            exit 1
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type=approved-release \
+            -f "client_payload[sha]=${APPROVED_SHA}" \
+            -f "client_payload[pr]=${pr_number}" \
+            -f "client_payload[version]=${version}"
 
   release:
     if: github.event_name == 'repository_dispatch'
@@ -36,45 +58,67 @@ jobs:
     outputs:
       release_created: ${{ steps.finalize.outputs.release_created }}
       tag_name: ${{ steps.finalize.outputs.tag_name }}
+      version: ${{ steps.finalize.outputs.version }}
     steps:
-      - name: Verify approved main commit
+      - name: Verify approved release
         env:
           APPROVED_SHA: ${{ github.event.client_payload.sha }}
+          EXPECTED_VERSION: ${{ github.event.client_payload.version }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ github.event.client_payload.pr }}
         run: |
+          if [[ ! "${RELEASE_PR}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid release PR: ${RELEASE_PR}"
+            exit 1
+          fi
           current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
           if [[ "${current_sha}" != "${APPROVED_SHA}" ]]; then
             echo "::error::main changed after approval; approve the latest Release run"
             exit 1
           fi
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
-        id: prepare
-        with:
-          release-type: node
-          target-branch: main
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${RELEASE_PR}")"
+          if ! jq -e --arg sha "${APPROVED_SHA}" --arg repo "${GITHUB_REPOSITORY}" '
+            .state == "open" and
+            .base.ref == "main" and
+            .base.sha == $sha and
+            .head.repo.full_name == $repo and
+            .user.login == "github-actions[bot]"
+          ' <<< "${pr}" > /dev/null; then
+            echo "::error::Release PR does not match the approved main commit"
+            exit 1
+          fi
+          pr_head_sha="$(jq -r '.head.sha' <<< "${pr}")"
+          pr_version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${pr_head_sha}" --jq '.version')"
+          if [[ "${pr_version}" != "${EXPECTED_VERSION}" ]]; then
+            echo "::error::Release PR version ${pr_version} does not match approved version ${EXPECTED_VERSION}"
+            exit 1
+          fi
       - name: Merge approved release PR
-        if: steps.prepare.outputs.prs_created == 'true'
         env:
           APPROVED_SHA: ${{ github.event.client_payload.sha }}
           GH_TOKEN: ${{ github.token }}
-          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
+          RELEASE_PR: ${{ github.event.client_payload.pr }}
         run: |
           current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
           if [[ "${current_sha}" != "${APPROVED_SHA}" ]]; then
             echo "::error::main changed after approval; approve the latest Release run"
             exit 1
           fi
-          pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
-          gh pr merge "${pr_number}" --repo "${GITHUB_REPOSITORY}" --merge
+          gh pr merge "${RELEASE_PR}" --repo "${GITHUB_REPOSITORY}" --merge
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: finalize
-        if: steps.prepare.outputs.prs_created == 'true'
         with:
           release-type: node
           target-branch: main
           skip-github-pull-request: true
+      - name: Verify released version
+        if: steps.finalize.outputs.release_created == 'true' && steps.finalize.outputs.version != github.event.client_payload.version
+        run: |
+          echo "::error::Released version ${{ steps.finalize.outputs.version }} does not match approved version ${{ github.event.client_payload.version }}"
+          exit 1
 
   publish:
+    name: Publish v${{ needs.release.outputs.version }}
     needs: release
     if: needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
