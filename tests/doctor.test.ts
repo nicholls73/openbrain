@@ -189,7 +189,10 @@ describe("openbrain doctor", () => {
     const later = () => new Date(Date.now() + 40 * 24 * 60 * 60 * 1000);
     const report = await runDoctor({ ...options(home), now: later, fetch: offlineFetch });
 
-    expect(check(report, "staleness").status).toBe("warn");
+    expect(check(report, "staleness")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("agents may not be following")
+    });
   });
 
   test("reports a recently written brain as fresh", async () => {
