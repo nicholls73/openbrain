@@ -2,6 +2,7 @@
 import { createInterface } from "node:readline/promises";
 import { renderCliError } from "./cli-error.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
+import { runMcpServer } from "./mcp.js";
 import {
   addBrainPath,
   addMemory,
@@ -100,6 +101,14 @@ async function main(argv: string[]) {
   if (area === "hook" && command === "session-start") {
     const reminder = await runSessionStartHook();
     console.log(reminder);
+    return;
+  }
+
+  if (area === "mcp") {
+    // Same best-effort daily maintenance the session-start hook runs. Errors
+    // (including an unassigned path) must not stop the server from starting.
+    await dreamMaybe().catch(() => {});
+    await runMcpServer();
     return;
   }
 
@@ -606,6 +615,7 @@ function usage() {
   openbrain memory delete <id>
   openbrain brain current
   openbrain brain add-path <brain> [path]
+  openbrain mcp
   openbrain review list
   openbrain review done <file>
   openbrain doctor
