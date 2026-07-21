@@ -105,10 +105,13 @@ async function main(argv: string[]) {
   }
 
   if (area === "mcp") {
-    // Same best-effort daily maintenance the session-start hook runs. Errors
-    // (including an unassigned path) must not stop the server from starting.
-    await dreamMaybe().catch(() => {});
+    // Connect the transport before the best-effort daily maintenance the
+    // session-start hook runs: dream can embed for minutes on a cold model,
+    // and blocking the initialize handshake past the client's startup
+    // timeout would mark the server failed. Errors (including an unassigned
+    // path) must not stop the server either.
     await runMcpServer();
+    void dreamMaybe().catch(() => {});
     return;
   }
 

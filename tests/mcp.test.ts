@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -116,6 +116,29 @@ describe("OpenBrain MCP server", () => {
 
     // The server survives the failed call.
     const current = await client.callTool({ name: "brain_current", arguments: {} });
-    expect(resultText(current)).toBe("ask:main");
+    expect(JSON.parse(resultText(current))).toEqual({ brain: "main", state: "ask" });
+  });
+
+  test("returns a tool error for an unknown memory id", async () => {
+    await tempHome();
+    const client = await connectedClient();
+
+    const result = await client.callTool({ name: "memory_show", arguments: { id: "no-such-id" } });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("Memory not found: no-such-id");
+  });
+
+  test("renders sandbox guidance when the store is not writable", async () => {
+    const home = await tempHome();
+    await chmod(home, 0o555);
+    cleanups.push(() => chmod(home, 0o755).catch(() => {}));
+    const client = await connectedClient();
+
+    const result = await client.callTool({
+      name: "memory_add",
+      arguments: { type: "workflow", text: "Should not be stored." }
+    });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("write allowlist");
   });
 });

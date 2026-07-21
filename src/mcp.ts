@@ -5,7 +5,7 @@ import { renderCliError } from "./cli-error.js";
 import {
   addMemory,
   deleteMemory,
-  getCurrentBrain,
+  getBrainStatus,
   listMemories,
   listPendingReviews,
   markReviewDone,
@@ -15,11 +15,12 @@ import {
   showMemory,
   updateMemory
 } from "./openbrain.js";
+import { DURABLE_MEMORY_TYPES, MEMORY_TYPES, STORED_MEMORY_TYPES } from "./types.js";
 import { readCurrentVersion } from "./update.js";
 
-const memoryType = z.enum(["preference", "workflow", "workspace", "decision", "episode"]);
-const storedMemoryType = z.enum(["preference", "workflow", "workspace", "decision", "episode", "project"]);
-const durableMemoryType = z.enum(["preference", "workflow", "workspace", "decision"]);
+const memoryType = z.enum(MEMORY_TYPES);
+const storedMemoryType = z.enum(STORED_MEMORY_TYPES);
+const durableMemoryType = z.enum(DURABLE_MEMORY_TYPES);
 
 // Domain errors (e.g. an unassigned workspace path) become MCP tool errors
 // carrying the same guidance the CLI prints, so a failing call never kills
@@ -144,9 +145,9 @@ export async function createMcpServer() {
     "brain_current",
     {
       description:
-        "Report which brain (memory container) the current workspace path resolves to. States other than active mean the path is unassigned or disabled; ask the user which brain should own it before using memory."
+        "Report which brain (memory container) the current workspace path resolves to, and its state. If the state is not active, ask the user which brain should own the path before using memory."
     },
-    () => toolResult(() => getCurrentBrain())
+    () => toolResult(() => getBrainStatus())
   );
 
   server.registerTool(
