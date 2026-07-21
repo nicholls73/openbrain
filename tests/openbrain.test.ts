@@ -556,6 +556,45 @@ describe("OpenBrain local storage", () => {
     await expect(stat(path.join(codexHome, "AGENTS.md"))).rejects.toThrow();
   });
 
+  test("setup disables Claude auto-memory on explicit consent, preserving other settings", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(
+      path.join(claudeHome, "settings.json"),
+      JSON.stringify({ model: "opus" }, null, 2),
+      "utf8"
+    );
+
+    await setupOpenBrain(
+      { brainScope: "default", syncCodex: false, syncClaude: true, disableClaudeAutoMemory: true },
+      { ...options(home), claudeHome }
+    );
+    const settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
+
+    expect(settings.autoMemoryEnabled).toBe(false);
+    expect(settings.model).toBe("opus");
+  });
+
+  test("setup leaves Claude auto-memory untouched without consent", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(
+      path.join(claudeHome, "settings.json"),
+      JSON.stringify({ autoMemoryEnabled: true }, null, 2),
+      "utf8"
+    );
+
+    await setupOpenBrain(
+      { brainScope: "default", syncCodex: false, syncClaude: true },
+      { ...options(home), claudeHome }
+    );
+    const settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
+
+    expect(settings.autoMemoryEnabled).toBe(true);
+  });
+
   test("guided setup can configure path-specific brains and ask on unmatched paths", async () => {
     const home = await tempHome();
     const projectPath = path.join(home, "projects", "alpha");

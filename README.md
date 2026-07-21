@@ -115,6 +115,12 @@ To override detection, pass `--codex yes|no` or `--claude yes|no`, for example t
 openbrain setup --brain-scope default --codex no --claude yes
 ```
 
+Claude Code ships its own auto-memory, on by default, which competes with OpenBrain for agent memories. Interactive setup asks whether to disable it; non-interactively, pass `--claude-auto-memory off` to consent to setting `"autoMemoryEnabled": false` in `~/.claude/settings.json` (unspecified leaves your setting untouched, and `openbrain doctor` warns while it is enabled):
+
+```bash
+openbrain setup --brain-scope default --claude-auto-memory off
+```
+
 To add Claude Code after an existing setup:
 
 ```bash

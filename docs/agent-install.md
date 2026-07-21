@@ -87,6 +87,8 @@ Repeat `--path-rule <brain>=<path>` for each pair the user gives you.
 
 Only pass `--codex yes|no` or `--claude yes|no` if the user explicitly asks to skip a detected agent or to integrate an agent that setup did not detect.
 
+If Claude Code is being integrated, tell the user its built-in auto-memory competes with OpenBrain and ask whether to disable it. Pass `--claude-auto-memory off` only if they agree; never disable it silently. Left unspecified, setup does not touch the setting and `openbrain doctor` will keep warning about it.
+
 If you cannot collect choices through chat or a native question UI, run interactive setup and let the user answer directly:
 
 ```bash
@@ -101,7 +103,7 @@ Run the self-diagnosis:
 openbrain doctor
 ```
 
-It checks the Node version, config, brain routing, the SQLite index, embeddings, agent adapters, the Claude hook, and PATH, and prints a fix for anything that is off.
+It checks the Node version, config, brain routing, the SQLite index, embeddings, agent adapters, the Claude hook, Claude's competing built-in auto-memory, and PATH, and prints a fix for anything that is off.
 
 Then confirm routing in each relevant workspace path:
 

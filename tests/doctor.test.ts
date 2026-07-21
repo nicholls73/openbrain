@@ -140,6 +140,42 @@ describe("openbrain doctor", () => {
     expect(report.failures).toBe(0);
   });
 
+  test("warns when Claude native auto-memory is not disabled", async () => {
+    const home = await tempHome();
+    await setupOpenBrain({ brainScope: "default", syncCodex: false, syncClaude: true }, options(home));
+
+    // Sync never touches autoMemoryEnabled, and Claude Code defaults it to on,
+    // so an absent key means the competing memory system is active.
+    const absent = await runDoctor({ ...options(home), fetch: offlineFetch });
+    expect(check(absent, "claude auto-memory")).toMatchObject({
+      status: "warn",
+      hint: expect.stringContaining('"autoMemoryEnabled": false')
+    });
+
+    await writeFile(
+      path.join(home, ".claude", "settings.json"),
+      JSON.stringify({ autoMemoryEnabled: true }, null, 2),
+      "utf8"
+    );
+    const explicit = await runDoctor({ ...options(home), fetch: offlineFetch });
+    expect(check(explicit, "claude auto-memory").status).toBe("warn");
+  });
+
+  test("reports ok when Claude native auto-memory is disabled", async () => {
+    const home = await tempHome();
+    await setupOpenBrain(
+      { brainScope: "default", syncCodex: false, syncClaude: true, disableClaudeAutoMemory: true },
+      options(home)
+    );
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "claude auto-memory")).toMatchObject({
+      status: "ok",
+      detail: expect.stringContaining("disabled")
+    });
+  });
+
   test("fails on an unparseable config", async () => {
     const home = await tempHome();
     await initOpenBrain(options(home));

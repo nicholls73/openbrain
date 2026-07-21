@@ -65,6 +65,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   if (config.agents.claude.enabled) {
     checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
     checks.push(await claudeHookCheck(options));
+    checks.push(await claudeAutoMemoryCheck(options));
   }
 
   checks.push(await pathCheck());
@@ -275,6 +276,26 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
     name: "claude hook",
     detail: `SessionStart hook missing from ${file}`,
     hint: "openbrain agents sync claude"
+  };
+}
+
+// Claude Code's built-in auto-memory defaults to on, so a missing or
+// unparseable settings.json still means the competing memory system is active.
+async function claudeAutoMemoryCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
+  const file = claudeSettingsPath(options);
+  try {
+    const settings = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    if (settings.autoMemoryEnabled === false) {
+      return { status: "ok", name: "claude auto-memory", detail: `disabled in ${file}` };
+    }
+  } catch {
+    // Fall through to the warn below.
+  }
+  return {
+    status: "warn",
+    name: "claude auto-memory",
+    detail: "Claude Code's built-in auto-memory is enabled and competes with OpenBrain for agent memories",
+    hint: `Set "autoMemoryEnabled": false in ${file}, or rerun openbrain setup and consent to disabling it.`
   };
 }
 

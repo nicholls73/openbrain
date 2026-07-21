@@ -6,6 +6,7 @@ import {
   addBrainPath,
   addMemory,
   deleteMemory,
+  detectClaudeAgent,
   dreamMaybe,
   dreamRun,
   getCurrentBrain,
@@ -195,6 +196,11 @@ async function setupCommand(args: string[]) {
   );
   if (result.claudeSettingsFile) {
     console.log(`Claude hook: ${result.claudeSettingsFile}`);
+    if (input.disableClaudeAutoMemory) {
+      console.log(
+        `Claude auto-memory: disabled ("autoMemoryEnabled": false in ${result.claudeSettingsFile})`
+      );
+    }
   }
 }
 
@@ -217,6 +223,7 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
   const brainScope = readOption(args, "--brain-scope") as SetupInput["brainScope"] | undefined;
   const codex = readOption(args, "--codex");
   const claude = readOption(args, "--claude");
+  const claudeAutoMemory = readOption(args, "--claude-auto-memory");
   const pathRules = readOptions(args, "--path-rule").map(parsePathRule);
 
   if (brainScope && !["default", "paths"].includes(brainScope)) {
@@ -227,13 +234,20 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
   // override detection, so leaving them undefined here means "detect".
   const syncCodex = codex ? parseYesNo(codex, "--codex") : undefined;
   const syncClaude = claude ? parseYesNo(claude, "--claude") : undefined;
+  // "off" is explicit consent to disable Claude's native auto-memory; "on" is
+  // an explicit decline. Unspecified leaves the user's setting untouched
+  // non-interactively and asks in the interactive flow below.
+  const disableClaudeAutoMemory = claudeAutoMemory
+    ? parseOnOff(claudeAutoMemory, "--claude-auto-memory") === "off"
+    : undefined;
 
   if (brainScope) {
     return {
       brainScope,
       pathRules,
       syncCodex,
-      syncClaude
+      syncClaude,
+      disableClaudeAutoMemory
     };
   }
 
@@ -251,12 +265,22 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
     const resolvedScope = await askBrainScope(prompt);
     const resolvedPathRules =
       resolvedScope === "paths" && pathRules.length === 0 ? await askPathRules(prompt) : pathRules;
+    const claudeWillSync = syncClaude ?? (await detectClaudeAgent());
+    const resolvedDisableAutoMemory =
+      disableClaudeAutoMemory ??
+      (claudeWillSync
+        ? await askYesNo(
+            prompt,
+            "Disable Claude Code's built-in auto-memory so OpenBrain owns agent memories? [Y/n] "
+          )
+        : undefined);
 
     return {
       brainScope: resolvedScope,
       pathRules: resolvedPathRules,
       syncCodex,
-      syncClaude
+      syncClaude,
+      disableClaudeAutoMemory: resolvedDisableAutoMemory
     };
   } finally {
     prompt.close();
@@ -468,6 +492,14 @@ function parseYesNo(value: string, optionName: string) {
   throw new Error(`${optionName} must be yes or no`);
 }
 
+function parseOnOff(value: string, optionName: string) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "on" || normalized === "off") {
+    return normalized;
+  }
+  throw new Error(`${optionName} must be on or off`);
+}
+
 function parseSearchArgs(args: string[]) {
   const queryTokens: string[] = [];
   const options: {
@@ -590,8 +622,9 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
 function usage() {
   console.log(`Usage:
   openbrain init
-  openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no]
-      (agent integrations are auto-detected; --codex/--claude override detection)
+  openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no] [--claude-auto-memory on|off]
+      (agent integrations are auto-detected; --codex/--claude override detection;
+       --claude-auto-memory off disables Claude Code's built-in auto-memory, unspecified leaves it untouched)
   openbrain agents sync codex|claude
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]

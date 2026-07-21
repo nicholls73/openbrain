@@ -86,6 +86,10 @@ export interface SetupInput {
   // undefined means auto-detect from the agent's config directory.
   syncCodex?: boolean;
   syncClaude?: boolean;
+  // Explicit user consent to write "autoMemoryEnabled": false into Claude
+  // settings so the native auto-memory stops competing with OpenBrain.
+  // undefined or false leaves the user's setting untouched.
+  disableClaudeAutoMemory?: boolean;
 }
 
 export interface SetupResult {

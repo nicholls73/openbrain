@@ -1,5 +1,11 @@
 import { mkdir } from "node:fs/promises";
-import { detectClaudeAgent, detectCodexAgent, syncClaudeAgent, syncCodexAgent } from "./adapters.js";
+import {
+  detectClaudeAgent,
+  detectCodexAgent,
+  disableClaudeAutoMemory,
+  syncClaudeAgent,
+  syncCodexAgent
+} from "./adapters.js";
 import { canonicalPathForRule } from "./brains.js";
 import { updateConfig } from "./config.js";
 import { getCurrentBrain, initOpenBrain } from "./internal.js";
@@ -46,6 +52,9 @@ export async function setupOpenBrain(
 
   const codexAgentFile = syncCodex ? await syncCodexAgent(options) : undefined;
   const claudeAgentFile = syncClaude ? await syncClaudeAgent(options) : undefined;
+  if (syncClaude && input.disableClaudeAutoMemory) {
+    await disableClaudeAutoMemory(options);
+  }
   const currentBrain =
     input.brainScope === "paths"
       ? await getCurrentBrain({ ...options, cwd: pathRules[0]!.path })

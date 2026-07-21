@@ -51,20 +51,7 @@ export async function syncClaudeAgent(options: OpenBrainOptions = {}) {
 export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
   const file = claudeSettingsPath(options);
   await mkdir(path.dirname(file), { recursive: true });
-
-  let settings: Record<string, unknown> = {};
-  try {
-    const raw = await readFile(file, "utf8");
-    const parsed = raw.trim() ? JSON.parse(raw) : {};
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      settings = parsed as Record<string, unknown>;
-    }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw error;
-    }
-  }
+  const settings = await readClaudeSettings(file);
 
   const hooks = isRecord(settings.hooks) ? { ...settings.hooks } : {};
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
@@ -97,6 +84,36 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
 
   await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return file;
+}
+
+// Turn off Claude Code's built-in auto-memory, which is on by default and
+// competes with OpenBrain for agent memories. Only called on explicit user
+// consent (setup question or --claude-auto-memory off); never part of a plain
+// adapter sync. Same read-merge-write pattern as syncClaudeSettings, so
+// unrelated settings are never clobbered.
+export async function disableClaudeAutoMemory(options: OpenBrainOptions = {}) {
+  const file = claudeSettingsPath(options);
+  await mkdir(path.dirname(file), { recursive: true });
+  const settings = await readClaudeSettings(file);
+  settings.autoMemoryEnabled = false;
+  await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  return file;
+}
+
+async function readClaudeSettings(file: string): Promise<Record<string, unknown>> {
+  try {
+    const raw = await readFile(file, "utf8");
+    const parsed = raw.trim() ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      throw error;
+    }
+  }
+  return {};
 }
 
 // Body of the `openbrain hook session-start` command. Claude Code runs this at

@@ -4,6 +4,7 @@ export {
   CLAUDE_HOOK_COMMAND,
   detectClaudeAgent,
   detectCodexAgent,
+  disableClaudeAutoMemory,
   OPENBRAIN_BEGIN,
   runSessionStartHook,
   syncClaudeAgent,
