@@ -68,11 +68,7 @@ export function decodeEmbedding(value: Buffer | string | null): ArrayLike<number
   return new Float32Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
 }
 
-export interface OpenDatabaseMode {
-  readonly?: boolean;
-}
-
-export async function openDatabase(options: OpenBrainOptions = {}, mode: OpenDatabaseMode = {}) {
+export async function openDatabase(options: OpenBrainOptions = {}, mode: { readonly?: boolean } = {}) {
   const file = dbPath(options);
   const Database = await loadDatabase();
   // Read paths must work when the store is readable but not writable (for
@@ -80,7 +76,7 @@ export async function openDatabase(options: OpenBrainOptions = {}, mode: OpenDat
   // A read-only open skips directory creation and schema migration, neither
   // of which a read needs. A missing database falls through to the writable
   // path so a first-ever read still creates it.
-  if (mode.readonly && (await fileExists(file))) {
+  if (mode.readonly && (await stat(file).catch(() => null))?.isFile()) {
     const db = openSqliteDatabase(file, Database, { readonly: true, fileMustExist: true });
     try {
       // Opening is lazy: reading page 1 is what actually opens the WAL side
@@ -92,7 +88,11 @@ export async function openDatabase(options: OpenBrainOptions = {}, mode: OpenDat
       return db;
     } catch (error) {
       db.close();
-      if (!isSqliteWritePermissionError(error)) {
+      // SQLite reports a store it may read but not write to with
+      // SQLITE_READONLY_* (for example SQLITE_READONLY_DIRECTORY when it
+      // cannot create -wal/-shm files next to the database) or SQLITE_CANTOPEN.
+      const code = (error as { code?: unknown }).code;
+      if (typeof code !== "string" || !/^SQLITE_(READONLY|CANTOPEN)/.test(code)) {
         throw error;
       }
     }
@@ -145,24 +145,6 @@ async function loadDatabase(): Promise<DatabaseConstructor> {
     }
     throw error;
   }
-}
-
-async function fileExists(file: string) {
-  try {
-    return (await stat(file)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-// SQLite reports a store it may read but not write to with SQLITE_READONLY_*
-// (for example SQLITE_READONLY_DIRECTORY when it cannot create -wal/-shm
-// files next to the database) or SQLITE_CANTOPEN.
-function isSqliteWritePermissionError(error: unknown) {
-  const code = (error as { code?: unknown }).code;
-  return (
-    typeof code === "string" && (code.startsWith("SQLITE_READONLY") || code.startsWith("SQLITE_CANTOPEN"))
-  );
 }
 
 // Last-resort read path for a WAL database in a directory the process cannot
