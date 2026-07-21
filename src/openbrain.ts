@@ -360,8 +360,8 @@ export async function promoteMemory(input: PromoteMemoryInput, options: OpenBrai
 }
 
 export async function searchMemories(query: string, options: SearchMemoriesOptions = {}) {
-  const { config, options: scopedOptions } = await prepareOpenBrain(options);
-  const db = await openDatabase(scopedOptions);
+  const { config, options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
+  const db = await openDatabase(scopedOptions, { readonly: true });
   try {
     const limit = config.retrieval.limit;
     const searchLimit = limit * 20;
@@ -470,8 +470,8 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
 }
 
 export async function listMemories(options: OpenBrainOptions = {}) {
-  const { options: scopedOptions } = await prepareOpenBrain(options);
-  const db = await openDatabase(scopedOptions);
+  const { options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
+  const db = await openDatabase(scopedOptions, { readonly: true });
   try {
     return listMemoryRows(db).map(rowToMemoryRecord);
   } finally {
@@ -480,8 +480,8 @@ export async function listMemories(options: OpenBrainOptions = {}) {
 }
 
 export async function showMemory(id: string, options: OpenBrainOptions = {}) {
-  const { options: scopedOptions } = await prepareOpenBrain(options);
-  const db = await openDatabase(scopedOptions);
+  const { options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
+  const db = await openDatabase(scopedOptions, { readonly: true });
   try {
     const row = getMemoryRow(db, id);
     if (!row) {
@@ -913,9 +913,14 @@ async function indexMemoryRecord(
 
 async function prepareOpenBrain(
   options: OpenBrainOptions = {},
-  behavior: { allowUnavailable?: boolean } = {}
+  behavior: { allowUnavailable?: boolean; readonly?: boolean } = {}
 ) {
-  await mkdir(openBrainHome(options), { recursive: true });
+  // Read-only commands skip directory creation so they work in sandboxes
+  // that can read the store but not write to it. The directories only need
+  // to exist before something is written, and every write path creates them.
+  if (!behavior.readonly) {
+    await mkdir(openBrainHome(options), { recursive: true });
+  }
   const config = await loadConfig(options);
   const resolution = resolveBrain(config, options);
   if (!resolution.enabled && !behavior.allowUnavailable) {
@@ -925,10 +930,12 @@ async function prepareOpenBrain(
     ...options,
     brain: resolution.brain
   };
-  await mkdir(brainHome(scopedOptions), { recursive: true });
-  await mkdir(memoriesDir(scopedOptions), { recursive: true });
-  await mkdir(episodesDir(scopedOptions), { recursive: true });
-  await mkdir(dreamsDir(scopedOptions), { recursive: true });
+  if (!behavior.readonly) {
+    await mkdir(brainHome(scopedOptions), { recursive: true });
+    await mkdir(memoriesDir(scopedOptions), { recursive: true });
+    await mkdir(episodesDir(scopedOptions), { recursive: true });
+    await mkdir(dreamsDir(scopedOptions), { recursive: true });
+  }
   return { config, options: scopedOptions, resolution };
 }
 

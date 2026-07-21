@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import type Database from "better-sqlite3";
 import { dbPath } from "./paths.js";
@@ -68,10 +68,37 @@ export function decodeEmbedding(value: Buffer | string | null): ArrayLike<number
   return new Float32Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
 }
 
-export async function openDatabase(options: OpenBrainOptions = {}) {
+export interface OpenDatabaseMode {
+  readonly?: boolean;
+}
+
+export async function openDatabase(options: OpenBrainOptions = {}, mode: OpenDatabaseMode = {}) {
   const file = dbPath(options);
-  await mkdir(dirname(file), { recursive: true });
   const Database = await loadDatabase();
+  // Read paths must work when the store is readable but not writable (for
+  // example a sandboxed agent whose write allowlist excludes ~/.openbrain).
+  // A read-only open skips directory creation and schema migration, neither
+  // of which a read needs. A missing database falls through to the writable
+  // path so a first-ever read still creates it.
+  if (mode.readonly && (await fileExists(file))) {
+    const db = openSqliteDatabase(file, Database, { readonly: true, fileMustExist: true });
+    try {
+      // Opening is lazy: reading page 1 is what actually opens the WAL side
+      // files, and SQLite creates missing -wal/-shm files even on a read-only
+      // connection. Probe now so a store whose directory forbids creating
+      // them falls back to an in-memory snapshot instead of failing on the
+      // first query.
+      db.pragma("user_version");
+      return db;
+    } catch (error) {
+      db.close();
+      if (!isSqliteWritePermissionError(error)) {
+        throw error;
+      }
+    }
+    return openDatabaseSnapshot(file, Database);
+  }
+  await mkdir(dirname(file), { recursive: true });
   const db = openSqliteDatabase(file, Database);
   // OpenBrain is shared by every coding agent on the machine, so multiple
   // processes open this database concurrently. WAL allows a reader and a
@@ -120,9 +147,48 @@ async function loadDatabase(): Promise<DatabaseConstructor> {
   }
 }
 
-export function openSqliteDatabase(file: string, Database: DatabaseConstructor) {
+async function fileExists(file: string) {
   try {
-    return new Database(file);
+    return (await stat(file)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+// SQLite reports a store it may read but not write to with SQLITE_READONLY_*
+// (for example SQLITE_READONLY_DIRECTORY when it cannot create -wal/-shm
+// files next to the database) or SQLITE_CANTOPEN.
+function isSqliteWritePermissionError(error: unknown) {
+  const code = (error as { code?: unknown }).code;
+  return (
+    typeof code === "string" && (code.startsWith("SQLITE_READONLY") || code.startsWith("SQLITE_CANTOPEN"))
+  );
+}
+
+// Last-resort read path for a WAL database in a directory the process cannot
+// write to: load a private in-memory copy. The copy misses transactions that
+// live only in an uncheckpointed -wal file, which is acceptable for reads and
+// strictly better than failing outright.
+async function openDatabaseSnapshot(file: string, Database: DatabaseConstructor) {
+  const image = await readFile(file);
+  // An in-memory database cannot be WAL, so SQLite refuses to deserialise an
+  // image whose header carries the WAL file-format versions. Apart from those
+  // two bytes the main file of a WAL database is a complete rollback-journal
+  // database, so rewrite them on this private copy.
+  if (image.length > 19 && image[18] === 2 && image[19] === 2) {
+    image[18] = 1;
+    image[19] = 1;
+  }
+  return new Database(image, { readonly: true });
+}
+
+export function openSqliteDatabase(
+  file: string,
+  Database: DatabaseConstructor,
+  sqliteOptions: Database.Options = {}
+) {
+  try {
+    return new Database(file, sqliteOptions);
   } catch (error) {
     if (isSqliteNodeAbiMismatch(error)) {
       throw new Error(sqliteNativeModuleRecoveryMessage(), { cause: error });

@@ -1,5 +1,16 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  utimes,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,6 +73,18 @@ function options(home: string, embedder?: EmbeddingProvider): OpenBrainOptions {
     now: () => new Date("2026-06-04T09:30:00.000Z"),
     embedder
   };
+}
+
+async function setTreePermissions(root: string, dirMode: number, fileMode: number) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const entryPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      await setTreePermissions(entryPath, dirMode, fileMode);
+    } else {
+      await chmod(entryPath, fileMode);
+    }
+  }
+  await chmod(root, dirMode);
 }
 
 describe("OpenBrain local storage", () => {
@@ -129,6 +152,46 @@ describe("OpenBrain local storage", () => {
     } finally {
       db.close();
     }
+  });
+
+  test("opens the database read-only when asked, rejecting writes", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const db = await openDatabase({ home, brain: "main" }, { readonly: true });
+    try {
+      expect(db.readonly).toBe(true);
+      expect(() => db.exec("DELETE FROM memories")).toThrow(/readonly/i);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("search, list, and show work when the memory store is not writable", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const added = await addMemory(
+      { type: "workflow", text: "Read-only sandbox agents can still search memory." },
+      options(home)
+    );
+
+    await setTreePermissions(home, 0o555, 0o444);
+    try {
+      const results = await searchMemories("read-only sandbox", options(home));
+      expect(results[0]).toMatchObject({ id: added.id });
+      expect((await listMemories(options(home))).map((memory) => memory.id)).toContain(added.id);
+      await expect(showMemory(added.id, options(home))).resolves.toContain("sandbox agents");
+    } finally {
+      await setTreePermissions(home, 0o755, 0o644);
+    }
+  });
+
+  test("a read-only search still creates a missing database when the store is writable", async () => {
+    const home = await tempHome();
+
+    await expect(searchMemories("anything", options(home))).resolves.toEqual([]);
+
+    await expect(stat(path.join(home, "brains", "main", "openbrain.db"))).resolves.toBeDefined();
   });
 
   test("selects isolated brains from configured current working directory paths", async () => {
