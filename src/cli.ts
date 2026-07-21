@@ -201,6 +201,8 @@ async function setupCommand(args: string[]) {
         `Claude auto-memory: disabled ("autoMemoryEnabled": false in ${result.claudeSettingsFile})`
       );
     }
+  } else if (input.disableClaudeAutoMemory) {
+    console.log("Claude auto-memory: left untouched (Claude Code was not synced)");
   }
 }
 

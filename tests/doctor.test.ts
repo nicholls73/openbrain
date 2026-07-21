@@ -159,6 +159,11 @@ describe("openbrain doctor", () => {
     );
     const explicit = await runDoctor({ ...options(home), fetch: offlineFetch });
     expect(check(explicit, "claude auto-memory").status).toBe("warn");
+
+    // An unparseable settings.json cannot prove auto-memory is off either.
+    await writeFile(path.join(home, ".claude", "settings.json"), "{ not json", "utf8");
+    const unparseable = await runDoctor({ ...options(home), fetch: offlineFetch });
+    expect(check(unparseable, "claude auto-memory").status).toBe("warn");
   });
 
   test("reports ok when Claude native auto-memory is disabled", async () => {
