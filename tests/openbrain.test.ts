@@ -1618,6 +1618,20 @@ describe("Claude adapter sync", () => {
     expect(commands).toContain("openbrain hook session-start");
   });
 
+  test("disables Claude auto-memory only with explicit consent", async () => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await initOpenBrain(options(home));
+
+    await syncClaudeSettings({ ...options(home), claudeHome });
+    let settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
+    expect(settings.autoMemoryEnabled).toBeUndefined();
+
+    await syncClaudeSettings({ ...options(home), claudeHome }, true);
+    settings = JSON.parse(await readFile(path.join(claudeHome, "settings.json"), "utf8"));
+    expect(settings.autoMemoryEnabled).toBe(false);
+  });
+
   test("re-syncing does not duplicate the SessionStart hook", async () => {
     const home = await tempHome();
     const claudeHome = path.join(home, ".claude");
