@@ -450,7 +450,7 @@ async function writeConsolidationReport(date: string, now: Date, options: OpenBr
   return target;
 }
 
-function findConsolidationGroups(db: Awaited<ReturnType<typeof openDatabase>>, now: Date) {
+export function findConsolidationGroups(db: Awaited<ReturnType<typeof openDatabase>>, now: Date) {
   const rows = allRowsWithEmbeddings(db).filter(
     (row) =>
       row.type !== "episode" &&

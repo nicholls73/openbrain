@@ -1,10 +1,17 @@
 import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
-import { CLAUDE_HOOK_COMMAND, getBrainStatus, memoryFiles, OPENBRAIN_BEGIN } from "./openbrain.js";
+import { findConsolidationGroups } from "./maintenance.js";
+import {
+  CLAUDE_HOOK_COMMAND,
+  getBrainStatus,
+  listPendingReviews,
+  memoryFiles,
+  OPENBRAIN_BEGIN
+} from "./openbrain.js";
 import { claudeHome, claudeSettingsPath, codexHome, configPath, dreamsDir } from "./paths.js";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 import { fetchLatestVersion, INSTALL_COMMAND, isNewerVersion, readCurrentVersion } from "./update.js";
@@ -56,6 +63,8 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   if (activeBrain) {
     await databaseCheck(checks, { ...options, brain: activeBrain });
     await dreamCheck(checks, { ...options, brain: activeBrain });
+    await reviewBacklogCheck(checks, { ...options, brain: activeBrain });
+    await duplicateCheck(checks, { ...options, brain: activeBrain });
   }
   await embeddingsCheck(checks, config, options);
 
@@ -192,6 +201,69 @@ async function dreamCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
       name: "dream",
       detail: "never dreamed (runs automatically once a day per brain)"
     });
+  }
+}
+
+// A review backlog this old means the quality loop has stalled: dream keeps
+// proposing cleanups and no agent is actioning them, so surface it to the
+// human running doctor.
+const REVIEW_BACKLOG_DAYS = 7;
+
+async function reviewBacklogCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
+  try {
+    const pending = await listPendingReviews(options);
+    const now = options.now?.() ?? new Date();
+    const cutoff = now.getTime() - REVIEW_BACKLOG_DAYS * 24 * 60 * 60 * 1000;
+    let aged = 0;
+    for (const review of pending) {
+      if ((await stat(review.path)).mtime.getTime() < cutoff) {
+        aged += 1;
+      }
+    }
+    if (aged > 0) {
+      checks.push({
+        status: "warn",
+        name: "review backlog",
+        detail:
+          `${aged} of ${pending.length} pending review file${pending.length === 1 ? "" : "s"} ` +
+          `older than ${REVIEW_BACKLOG_DAYS} days`,
+        hint: 'Run "openbrain review list", action each file, then "openbrain review done <file>".'
+      });
+      return;
+    }
+    checks.push({
+      status: "ok",
+      name: "review backlog",
+      detail: pending.length
+        ? `${pending.length} pending review file${pending.length === 1 ? "" : "s"}, none older than ${REVIEW_BACKLOG_DAYS} days`
+        : "no pending reviews"
+    });
+  } catch (error) {
+    checks.push({ status: "fail", name: "review backlog", detail: message(error) });
+  }
+}
+
+async function duplicateCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
+  try {
+    const db = await openDatabase(options, { readonly: true });
+    let groups: ReturnType<typeof findConsolidationGroups>;
+    try {
+      groups = findConsolidationGroups(db, options.now?.() ?? new Date());
+    } finally {
+      db.close();
+    }
+    if (groups.length > 0) {
+      checks.push({
+        status: "warn",
+        name: "duplicates",
+        detail: `${groups.length} group${groups.length === 1 ? "" : "s"} of near-duplicate durable memories`,
+        hint: 'Run "openbrain dream run", then action the consolidation review it writes.'
+      });
+      return;
+    }
+    checks.push({ status: "ok", name: "duplicates", detail: "no near-duplicate durable memories" });
+  } catch (error) {
+    checks.push({ status: "fail", name: "duplicates", detail: message(error) });
   }
 }
 
