@@ -1,55 +1,28 @@
 name: Release
-run-name: ${{ github.event_name == 'repository_dispatch' && format('Release v{0}', github.event.client_payload.version) || 'Release approval' }}
+run-name: Release v${{ github.event.client_payload.version }}
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   repository_dispatch:
-    types: [approved-release]
-
-concurrency:
-  group: ${{ github.event_name == 'workflow_run' && 'release-approval' || 'release' }}
-  cancel-in-progress: ${{ github.event_name == 'workflow_run' }}
+    types: [prepared-release]
 
 jobs:
   approve:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha
+    name: Approve v${{ github.event.client_payload.version }}
     runs-on: ubuntu-latest
     environment: release
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+    concurrency:
+      group: release-approval
+      cancel-in-progress: true
+    permissions: {}
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
-        id: prepare
-        with:
-          release-type: node
-          target-branch: main
-      - name: Start approved release
-        if: steps.prepare.outputs.prs_created == 'true'
+      - name: Approval granted
         env:
-          APPROVED_SHA: ${{ github.event.workflow_run.head_sha }}
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
-        run: |
-          pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
-          pr_head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.sha')"
-          version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${pr_head_sha}" --jq '.version')"
-          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Release Please produced an invalid version: ${version}"
-            exit 1
-          fi
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
-            -f event_type=approved-release \
-            -f "client_payload[sha]=${APPROVED_SHA}" \
-            -f "client_payload[pr]=${pr_number}" \
-            -f "client_payload[version]=${version}"
+          VERSION: ${{ github.event.client_payload.version }}
+        run: echo "Approved release v${VERSION}"
 
   release:
-    if: github.event_name == 'repository_dispatch'
+    name: Release v${{ github.event.client_payload.version }}
+    needs: approve
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -112,13 +85,18 @@ jobs:
           target-branch: main
           skip-github-pull-request: true
       - name: Verify released version
-        if: steps.finalize.outputs.release_created == 'true' && steps.finalize.outputs.version != github.event.client_payload.version
+        if: steps.finalize.outputs.release_created == 'true'
+        env:
+          EXPECTED_VERSION: ${{ github.event.client_payload.version }}
+          RELEASED_VERSION: ${{ steps.finalize.outputs.version }}
         run: |
-          echo "::error::Released version ${{ steps.finalize.outputs.version }} does not match approved version ${{ github.event.client_payload.version }}"
-          exit 1
+          if [[ "${RELEASED_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+            echo "::error::Released version ${RELEASED_VERSION} does not match approved version ${EXPECTED_VERSION}"
+            exit 1
+          fi
 
   publish:
-    name: Publish v${{ needs.release.outputs.version }}
+    name: Publish v${{ github.event.client_payload.version }}
     needs: release
     if: needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-latest

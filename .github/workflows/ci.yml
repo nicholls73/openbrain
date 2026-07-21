@@ -75,3 +75,48 @@ jobs:
       - run: pnpm vitest run tests/embeddings-real.test.ts
         env:
           OPENBRAIN_REAL_EMBEDDINGS: "1"
+
+  prepare-release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, build, test, embeddings-integration]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check current main commit
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          if [[ "${current_sha}" == "${GITHUB_SHA}" ]]; then
+            echo "current=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::notice::A newer main commit superseded this release candidate"
+          fi
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: prepare
+        if: steps.main.outputs.current == 'true'
+        with:
+          release-type: node
+          target-branch: main
+      - name: Start release approval
+        if: steps.prepare.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
+        run: |
+          pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
+          pr_head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.sha')"
+          version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${pr_head_sha}" --jq '.version')"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release Please produced an invalid version: ${version}"
+            exit 1
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type=prepared-release \
+            -f "client_payload[sha]=${GITHUB_SHA}" \
+            -f "client_payload[pr]=${pr_number}" \
+            -f "client_payload[version]=${version}"
