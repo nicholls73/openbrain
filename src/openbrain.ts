@@ -1494,6 +1494,11 @@ is needed. Then mark it handled:
 openbrain review done <file>
 \`\`\`
 
+If an \`openbrain\` command fails with a sandbox or permission message, the
+memory store is outside the sandbox's write allowlist. Ask the user to
+approve elevated filesystem access, then rerun the exact same command. Do
+not silently skip memory search or recording.
+
 For POC or reference work, classify details before storing them. Keep the
 reusable rule, such as how to separate UI, calculation, data contract, fixture,
 and product assumption. Avoid storing copied constants or prior implementation

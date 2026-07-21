@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
+import { renderCliError } from "./cli-error.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
 import {
   addBrainPath,
@@ -613,6 +614,6 @@ function usage() {
 }
 
 main(process.argv.slice(2)).catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(renderCliError(error));
   process.exitCode = 1;
 });
