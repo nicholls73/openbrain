@@ -1495,6 +1495,7 @@ describe("Codex adapter sync", () => {
     expect(agentFile).toContain("Do not store branch names, PR");
     expect(agentFile).toContain("If short-lived handoff context is useful, store it as");
     expect(agentFile).toContain("For POC or reference work, classify details before storing them.");
+    expect(agentFile).toContain("approve elevated filesystem access, then rerun the exact same command");
     expect(agentFile).toContain("- `workspace`: stable workspace, toolchain, or recurring task conventions.");
     expect(agentFile).toContain(
       "- `episode`: short-lived session notes, handoff state, or fast-changing facts."
