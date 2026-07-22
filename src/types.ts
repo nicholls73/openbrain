@@ -90,6 +90,8 @@ export interface SetupInput {
   // undefined means auto-detect from the agent's config directory.
   syncCodex?: boolean;
   syncClaude?: boolean;
+  // Must be explicitly true; OpenBrain never changes Claude's memory setting silently.
+  disableClaudeAutoMemory?: boolean;
 }
 
 export interface SetupResult {

@@ -7,6 +7,7 @@ import {
   addBrainPath,
   addMemory,
   deleteMemory,
+  detectClaudeAgent,
   dreamMaybe,
   dreamRun,
   getCurrentBrain,
@@ -64,9 +65,15 @@ async function main(argv: string[]) {
       return;
     }
     if (agent === "claude") {
-      const file = await syncClaudeAgent();
+      const disableAutoMemory = await readClaudeAutoMemoryPreference(rest.slice(1));
+      const file = await syncClaudeAgent({}, disableAutoMemory);
       console.log(`Synced Claude adapter: ${file}`);
       console.log(`Installed SessionStart hook: ${claudeSettingsPath()}`);
+      console.log(
+        disableAutoMemory
+          ? "Disabled Claude auto-memory."
+          : "Claude auto-memory left unchanged; OpenBrain doctor will warn if it is enabled."
+      );
       return;
     }
     throw new Error("Supported agent sync targets: codex, claude.");
@@ -193,6 +200,13 @@ async function dreamCommand(command: string | undefined, args: string[]) {
 
 async function setupCommand(args: string[]) {
   const input = await readSetupInput(args);
+  if (
+    input.disableClaudeAutoMemory === undefined &&
+    process.stdin.isTTY &&
+    (input.syncClaude === true || (input.syncClaude === undefined && (await detectClaudeAgent())))
+  ) {
+    input.disableClaudeAutoMemory = await readClaudeAutoMemoryPreference([]);
+  }
   const result = await setupOpenBrain(input);
 
   console.log("OpenBrain setup complete.");
@@ -229,6 +243,7 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
   const brainScope = readOption(args, "--brain-scope") as SetupInput["brainScope"] | undefined;
   const codex = readOption(args, "--codex");
   const claude = readOption(args, "--claude");
+  const disableClaudeMemory = readOption(args, "--disable-claude-auto-memory");
   const pathRules = readOptions(args, "--path-rule").map(parsePathRule);
 
   if (brainScope && !["default", "paths"].includes(brainScope)) {
@@ -239,13 +254,17 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
   // override detection, so leaving them undefined here means "detect".
   const syncCodex = codex ? parseYesNo(codex, "--codex") : undefined;
   const syncClaude = claude ? parseYesNo(claude, "--claude") : undefined;
+  const disableClaudeAutoMemory = disableClaudeMemory
+    ? parseYesNo(disableClaudeMemory, "--disable-claude-auto-memory")
+    : undefined;
 
   if (brainScope) {
     return {
       brainScope,
       pathRules,
       syncCodex,
-      syncClaude
+      syncClaude,
+      disableClaudeAutoMemory
     };
   }
 
@@ -268,8 +287,29 @@ async function readSetupInput(args: string[]): Promise<SetupInput> {
       brainScope: resolvedScope,
       pathRules: resolvedPathRules,
       syncCodex,
-      syncClaude
+      syncClaude,
+      disableClaudeAutoMemory
     };
+  } finally {
+    prompt.close();
+  }
+}
+
+async function readClaudeAutoMemoryPreference(args: string[]) {
+  const configured = readOption(args, "--disable-claude-auto-memory");
+  if (configured) {
+    return parseYesNo(configured, "--disable-claude-auto-memory");
+  }
+  if (!process.stdin.isTTY) {
+    return false;
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return askYesNo(
+      prompt,
+      "Disable Claude Code's built-in auto-memory to avoid a competing memory store? [y/N] ",
+      false
+    );
   } finally {
     prompt.close();
   }
@@ -602,9 +642,9 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
 function usage() {
   console.log(`Usage:
   openbrain init
-  openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no]
+  openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no] [--disable-claude-auto-memory yes|no]
       (agent integrations are auto-detected; --codex/--claude override detection)
-  openbrain agents sync codex|claude
+  openbrain agents sync codex|claude [--disable-claude-auto-memory yes|no]
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]
   openbrain hook session-start

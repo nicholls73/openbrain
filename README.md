@@ -118,8 +118,10 @@ openbrain setup --brain-scope default --codex no --claude yes
 To add Claude Code after an existing setup:
 
 ```bash
-openbrain agents sync claude
+openbrain agents sync claude --disable-claude-auto-memory yes
 ```
+
+The flag explicitly disables Claude Code's built-in auto-memory so memories do not split between two stores. Interactive setup asks for the same consent; OpenBrain never changes this Claude setting silently.
 
 After this, configured agents know when to search and write memories.
 

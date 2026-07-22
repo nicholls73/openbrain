@@ -12,4 +12,4 @@ Release Please determines the next version from Conventional Commits merged sinc
 
 Use Conventional Commit titles for commits and pull requests. A squash-merged pull request uses its title as the commit title. Changes such as `docs:`, `test:`, `ci:`, and `chore:` do not create a release by themselves.
 
-Do not edit package versions manually. After successful CI on `main`, the Release workflow waits for approval, prepares the version from the commit history, and publishes that exact version.
+Do not edit package versions manually. After successful CI on `main`, CI prepares the version from the commit history and starts one versioned Release workflow that waits for approval before releasing and publishing it.
