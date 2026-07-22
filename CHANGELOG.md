@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.0](https://github.com/nicholls73/openbrain/compare/v0.6.1...v0.7.0) (2026-07-22)
+
+
+### Features
+
+* add explicit update command ([#84](https://github.com/nicholls73/openbrain/issues/84)) ([953427d](https://github.com/nicholls73/openbrain/commit/953427d5c7bef8954fbd1e1151744157300518d2))
+* add MCP server exposing memory operations ([#78](https://github.com/nicholls73/openbrain/issues/78)) ([a9d6c58](https://github.com/nicholls73/openbrain/commit/a9d6c58d8dc843d1c3d70f03a54b7f1fbc533efb))
+* doctor: report per-agent enforcement strength and warn on stale brains ([#75](https://github.com/nicholls73/openbrain/issues/75)) ([cd932f9](https://github.com/nicholls73/openbrain/commit/cd932f9f5a750efd830ec2164c6bc8d60653386a))
+* doctor: warn on aged review backlog and duplicate density ([#76](https://github.com/nicholls73/openbrain/issues/76)) ([4e23926](https://github.com/nicholls73/openbrain/commit/4e23926939b1bc189410669d293bd2d35364e778))
+
 ## [0.6.1](https://github.com/nicholls73/openbrain/compare/v0.6.0...v0.6.1) (2026-07-22)
 
 
