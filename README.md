@@ -19,6 +19,14 @@ openbrain setup
 
 Use the scoped name exactly — the unscoped `openbrain` package on npm is an unrelated project by a different author.
 
+OpenBrain checks for new versions but never installs them silently. Update explicitly with:
+
+```bash
+openbrain update
+```
+
+The command shows the version change, asks for confirmation, uses npm or the verified fallback installer to match the existing installation, then runs `openbrain doctor`. Use `--yes` only after the user has already approved a non-interactive update.
+
 You can also point a coding agent at this repository and ask it to install OpenBrain, or paste this more explicit prompt into Codex, Claude Code, OpenCode, or another coding agent:
 
 ```text

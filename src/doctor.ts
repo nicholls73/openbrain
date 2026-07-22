@@ -8,7 +8,7 @@ import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
 import { CLAUDE_HOOK_COMMAND, getBrainStatus, memoryFiles, OPENBRAIN_BEGIN } from "./openbrain.js";
 import { claudeHome, claudeSettingsPath, codexHome, configPath, dreamsDir } from "./paths.js";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
-import { fetchLatestVersion, INSTALL_COMMAND, isNewerVersion, readCurrentVersion } from "./update.js";
+import { fetchLatestVersion, isNewerVersion, readCurrentVersion, UPDATE_COMMAND } from "./update.js";
 
 export interface DoctorCheck {
   status: "ok" | "warn" | "fail";
@@ -126,7 +126,7 @@ async function versionCheck(options: DoctorOptions): Promise<DoctorCheck> {
         status: "warn",
         name: "version",
         detail: `${current} (update available: ${latest})`,
-        hint: INSTALL_COMMAND
+        hint: UPDATE_COMMAND
       };
     }
     return { status: "ok", name: "version", detail: `${current} (latest: ${latest})` };
