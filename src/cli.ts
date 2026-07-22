@@ -41,7 +41,7 @@ import {
   type SetupPathRuleInput,
   type StoredMemoryType
 } from "./types.js";
-import { maybePrintUpdateNotice } from "./update.js";
+import { applyUpdate, maybePrintUpdateNotice, planUpdate, type UpdatePlan } from "./update.js";
 
 async function main(argv: string[]) {
   const [area, command, ...rest] = argv;
@@ -54,6 +54,11 @@ async function main(argv: string[]) {
 
   if (area === "setup") {
     await setupCommand([command, ...rest].filter((value): value is string => Boolean(value)));
+    return;
+  }
+
+  if (area === "update") {
+    await updateCommand([command, ...rest].filter((value): value is string => Boolean(value)));
     return;
   }
 
@@ -175,6 +180,45 @@ async function reviewCommand(command: string | undefined, args: string[]) {
   }
 
   usage();
+}
+
+async function updateCommand(args: string[]) {
+  const unknown = args.find((arg) => arg !== "--yes");
+  if (unknown) {
+    throw new Error(`openbrain update does not support ${unknown}`);
+  }
+  const plan = await planUpdate();
+  if (!plan.method) {
+    console.log(`OpenBrain ${plan.currentVersion} is already the latest version.`);
+    return;
+  }
+  if (!args.includes("--yes") && !(await confirmUpdate(plan))) {
+    console.log("Update cancelled.");
+    return;
+  }
+
+  console.log(
+    `Updating OpenBrain ${plan.currentVersion} -> ${plan.latestVersion} via ` +
+      `${plan.method === "npm" ? "npm" : "the verified installer"}...`
+  );
+  await applyUpdate(plan);
+  console.log(`Updated OpenBrain to ${plan.latestVersion}.`);
+}
+
+async function confirmUpdate(plan: UpdatePlan) {
+  if (!process.stdin.isTTY) {
+    throw new Error("openbrain update needs confirmation; rerun with --yes after user approval");
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return askYesNo(
+      prompt,
+      `Update OpenBrain ${plan.currentVersion} -> ${plan.latestVersion}? [y/N] `,
+      false
+    );
+  } finally {
+    prompt.close();
+  }
 }
 
 async function dreamCommand(command: string | undefined, args: string[]) {
@@ -642,6 +686,7 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
 function usage() {
   console.log(`Usage:
   openbrain init
+  openbrain update [--yes]
   openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no] [--disable-claude-auto-memory yes|no]
       (agent integrations are auto-detected; --codex/--claude override detection)
   openbrain agents sync codex|claude [--disable-claude-auto-memory yes|no]

@@ -17,6 +17,23 @@ async function tempDir() {
   return root;
 }
 
+async function installFromLocal(root: string, env: NodeJS.ProcessEnv = {}) {
+  const installDir = path.join(root, "app");
+  const binDir = path.join(root, "bin");
+  await execFileAsync("bash", ["scripts/install.sh"], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      OPENBRAIN_SOURCE_DIR: repoRoot,
+      OPENBRAIN_INSTALL_DIR: installDir,
+      OPENBRAIN_BIN_DIR: binDir,
+      ...env
+    },
+    timeout: 60_000
+  });
+  return { installDir, binDir };
+}
+
 afterEach(async () => {
   for (const root of tempRoots.splice(0)) {
     await rm(root, { recursive: true, force: true });
@@ -35,6 +52,7 @@ describe("install script", () => {
 
     expect(stdout).toContain("curl -fsSL");
     expect(stdout).toContain("OPENBRAIN_INSTALL_DIR");
+    expect(stdout).toContain("OPENBRAIN_SKIP_BIN");
     expect(stdout).toContain("openbrain setup");
     expect(stdout).toContain("latest release");
     expect(stdout).toContain("SHA-256");
@@ -51,19 +69,7 @@ describe("install script", () => {
 
   test("installs from a local source directory and creates an openbrain executable", async () => {
     const root = await tempDir();
-    const installDir = path.join(root, "app");
-    const binDir = path.join(root, "bin");
-
-    await execFileAsync("bash", ["scripts/install.sh"], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        OPENBRAIN_SOURCE_DIR: repoRoot,
-        OPENBRAIN_INSTALL_DIR: installDir,
-        OPENBRAIN_BIN_DIR: binDir
-      },
-      timeout: 60_000
-    });
+    const { installDir, binDir } = await installFromLocal(root);
 
     await expect(access(path.join(binDir, "openbrain"), constants.X_OK)).resolves.toBeUndefined();
     await expect(readFile(path.join(installDir, "package.json"), "utf8")).resolves.toContain(
@@ -78,5 +84,12 @@ describe("install script", () => {
     });
     expect(stdout).toContain("openbrain init");
     expect(stdout).toContain("openbrain setup");
+  }, 90_000);
+
+  test("can preserve an existing executable wrapper during an update", async () => {
+    const root = await tempDir();
+    const { binDir } = await installFromLocal(root, { OPENBRAIN_SKIP_BIN: "1" });
+
+    await expect(access(path.join(binDir, "openbrain"), constants.X_OK)).rejects.toThrow();
   }, 90_000);
 });

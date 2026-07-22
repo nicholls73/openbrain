@@ -7,6 +7,7 @@ OPENBRAIN_REF="${OPENBRAIN_REF:-}"
 OPENBRAIN_INSTALL_DIR="${OPENBRAIN_INSTALL_DIR:-$HOME/.local/share/openbrain/app}"
 OPENBRAIN_BIN_DIR="${OPENBRAIN_BIN_DIR:-$HOME/.local/bin}"
 OPENBRAIN_SOURCE_DIR="${OPENBRAIN_SOURCE_DIR:-}"
+OPENBRAIN_SKIP_BIN="${OPENBRAIN_SKIP_BIN:-0}"
 
 usage() {
   cat <<'EOF'
@@ -23,6 +24,7 @@ Environment:
   OPENBRAIN_INSTALL_DIR  Install location. Default: ~/.local/share/openbrain/app
   OPENBRAIN_BIN_DIR      Directory for the openbrain executable. Default: ~/.local/bin
   OPENBRAIN_SOURCE_DIR   Local source directory for development/testing installs.
+  OPENBRAIN_SKIP_BIN     Set to 1 to preserve an existing executable wrapper.
 
 After install:
   openbrain setup
@@ -205,17 +207,19 @@ install_openbrain() {
   log "building CLI"
   (cd "$OPENBRAIN_INSTALL_DIR" && pnpm build)
 
-  mkdir -p "$OPENBRAIN_BIN_DIR"
-  cat > "$OPENBRAIN_BIN_DIR/openbrain" <<EOF
+  if [[ "$OPENBRAIN_SKIP_BIN" != "1" ]]; then
+    mkdir -p "$OPENBRAIN_BIN_DIR"
+    cat > "$OPENBRAIN_BIN_DIR/openbrain" <<EOF
 #!/usr/bin/env bash
 exec node "$OPENBRAIN_INSTALL_DIR/dist/cli.js" "\$@"
 EOF
-  chmod +x "$OPENBRAIN_BIN_DIR/openbrain"
+    chmod +x "$OPENBRAIN_BIN_DIR/openbrain"
 
-  log "installed executable: $OPENBRAIN_BIN_DIR/openbrain"
-  if [[ ":$PATH:" != *":$OPENBRAIN_BIN_DIR:"* ]]; then
-    log "add this to your shell profile if openbrain is not found:"
-    log "export PATH=\"$OPENBRAIN_BIN_DIR:\$PATH\""
+    log "installed executable: $OPENBRAIN_BIN_DIR/openbrain"
+    if [[ ":$PATH:" != *":$OPENBRAIN_BIN_DIR:"* ]]; then
+      log "add this to your shell profile if openbrain is not found:"
+      log "export PATH=\"$OPENBRAIN_BIN_DIR:\$PATH\""
+    fi
   fi
   log "next: openbrain setup"
 }
