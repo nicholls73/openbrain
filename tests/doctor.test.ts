@@ -78,6 +78,10 @@ describe("openbrain doctor", () => {
     expect(check(report, "codex adapter").status).toBe("ok");
     expect(check(report, "claude adapter").status).toBe("ok");
     expect(check(report, "claude hook").status).toBe("ok");
+    expect(check(report, "claude auto-memory")).toMatchObject({
+      status: "warn",
+      hint: expect.stringContaining('"autoMemoryEnabled": false')
+    });
     expect(report.failures).toBe(0);
 
     const rendered = renderDoctorReport(report);
@@ -202,6 +206,18 @@ describe("openbrain doctor", () => {
     const report = await runDoctor({ ...options(home), now: () => new Date(), fetch: offlineFetch });
 
     expect(check(report, "staleness").status).toBe("ok");
+  });
+
+  test("accepts disabled Claude auto-memory", async () => {
+    const home = await tempHome();
+    await setupOpenBrain(
+      { brainScope: "default", syncCodex: false, syncClaude: true, disableClaudeAutoMemory: true },
+      options(home)
+    );
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "claude auto-memory").status).toBe("ok");
   });
 
   test("fails on an unparseable config", async () => {

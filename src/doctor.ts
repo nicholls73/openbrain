@@ -73,6 +73,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
     checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
     const hook = await claudeHookCheck(options);
     checks.push(hook, claudeEnforcementCheck(hook));
+    checks.push(await claudeAutoMemoryCheck(options));
   }
 
   checks.push(await pathCheck());
@@ -337,6 +338,25 @@ async function stalenessCheck(checks: DoctorCheck[], options: OpenBrainOptions) 
   } catch (error) {
     checks.push({ status: "warn", name: "staleness", detail: message(error) });
   }
+}
+
+async function claudeAutoMemoryCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
+  const file = claudeSettingsPath(options);
+  try {
+    const settings = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    if (settings.autoMemoryEnabled === false) {
+      return { status: "ok", name: "claude auto-memory", detail: `disabled in ${file}` };
+    }
+  } catch {
+    // The hook check already reports missing or invalid settings; retain the
+    // actionable auto-memory warning because Claude enables it by default.
+  }
+  return {
+    status: "warn",
+    name: "claude auto-memory",
+    detail: `Claude's competing memory store is not explicitly disabled in ${file}`,
+    hint: `Set "autoMemoryEnabled": false, or run "openbrain agents sync claude --disable-claude-auto-memory yes".`
+  };
 }
 
 async function pathCheck(): Promise<DoctorCheck> {
