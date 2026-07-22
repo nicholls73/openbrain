@@ -1,10 +1,11 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import type { DoctorCheck, DoctorReport } from "../src/doctor.js";
 import { renderDoctorReport, runDoctor } from "../src/doctor.js";
 import { addMemory, initOpenBrain, setupOpenBrain } from "../src/openbrain.js";
+import { dreamsDir } from "../src/paths.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
 
 const tempRoots: string[] = [];
@@ -78,6 +79,8 @@ describe("openbrain doctor", () => {
     expect(check(report, "codex adapter").status).toBe("ok");
     expect(check(report, "claude adapter").status).toBe("ok");
     expect(check(report, "claude hook").status).toBe("ok");
+    expect(check(report, "review backlog")).toMatchObject({ status: "ok", detail: "no pending reviews" });
+    expect(check(report, "duplicates").status).toBe("ok");
     expect(check(report, "claude auto-memory")).toMatchObject({
       status: "warn",
       hint: expect.stringContaining('"autoMemoryEnabled": false')
@@ -142,6 +145,154 @@ describe("openbrain doctor", () => {
       hint: "openbrain agents sync claude"
     });
     expect(report.failures).toBe(0);
+  });
+
+  async function writePendingReview(home: string, mtime: Date) {
+    const dir = dreamsDir({ ...options(home), brain: "main" });
+    await mkdir(dir, { recursive: true });
+    const file = path.join(dir, "2026-05-01-consolidation.md");
+    await writeFile(file, "# Consolidation review\n\n- [abc123] duplicate memory\n", "utf8");
+    await utimes(file, mtime, mtime);
+  }
+
+  test("warns when a pending review is older than the backlog threshold", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    // Doctor's fixed "now" is 2026-06-04; this review has sat for over a month.
+    await writePendingReview(home, new Date("2026-05-01T09:00:00.000Z"));
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "review backlog")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("1 of 1 pending review file"),
+      hint: expect.stringContaining('"openbrain review done <file>"')
+    });
+    expect(check(report, "review backlog").hint).toContain("openbrain review list");
+  });
+
+  test("does not warn on a fresh pending review", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    await writePendingReview(home, new Date("2026-06-03T09:00:00.000Z"));
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "review backlog")).toMatchObject({
+      status: "ok",
+      detail: expect.stringContaining("1 pending review file")
+    });
+  });
+
+  test("warns on near-duplicate durable memories", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        return [1, 0, 0];
+      }
+    };
+    await addMemory(
+      { type: "workflow", text: "Always run the release checklist before deploying." },
+      options(home, embedder)
+    );
+    await addMemory(
+      { type: "workflow", text: "Run the release checklist prior to every deploy." },
+      options(home, embedder)
+    );
+
+    const report = await runDoctor({ ...options(home, embedder), fetch: offlineFetch });
+
+    expect(check(report, "duplicates")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("1 group of near-duplicate durable memories"),
+      hint: expect.stringContaining("openbrain dream run")
+    });
+  });
+
+  test("counts overlapping duplicate matches as one group", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed(text) {
+        if (text.includes("Memory A")) {
+          return [0.9063078, 0.4226183];
+        }
+        if (text.includes("Memory B")) {
+          return [0.9063078, -0.4226183];
+        }
+        return [1, 0];
+      }
+    };
+    await addMemory({ type: "workflow", text: "Memory A" }, options(home, embedder));
+    await addMemory({ type: "workflow", text: "Memory B" }, options(home, embedder));
+    await addMemory({ type: "workflow", text: "Memory C" }, options(home, embedder));
+
+    const report = await runDoctor({ ...options(home, embedder), fetch: offlineFetch });
+
+    expect(check(report, "duplicates").detail).toContain("1 group of near-duplicate durable memories");
+  });
+
+  test("reports codex as advisory-only and a hooked claude as hook-backed", async () => {
+    const home = await tempHome();
+    await setupOpenBrain({ brainScope: "default", syncCodex: true, syncClaude: true }, options(home));
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "codex enforcement")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("advisory-only")
+    });
+    expect(check(report, "claude enforcement")).toMatchObject({
+      status: "ok",
+      detail: expect.stringContaining("hook-backed")
+    });
+  });
+
+  test("reports claude as advisory-only when the SessionStart hook is missing", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "claude enforcement")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("advisory-only"),
+      hint: "openbrain agents sync claude"
+    });
+  });
+
+  test("warns when the newest memory is older than the stale threshold", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Deploy with the checklist." }, options(home));
+
+    const later = () => new Date(Date.now() + 40 * 24 * 60 * 60 * 1000);
+    const report = await runDoctor({ ...options(home), now: later, fetch: offlineFetch });
+
+    expect(check(report, "staleness")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("agents may not be following")
+    });
+  });
+
+  test("warns when an empty brain's install is older than the stale threshold", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const later = () => new Date(Date.now() + 40 * 24 * 60 * 60 * 1000);
+    const report = await runDoctor({ ...options(home), now: later, fetch: offlineFetch });
+
+    expect(check(report, "staleness")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("agents may not be following")
+    });
+  });
+
+  test("reports a recently written brain as fresh", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Deploy with the checklist." }, options(home));
+
+    const report = await runDoctor({ ...options(home), now: () => new Date(), fetch: offlineFetch });
+
+    expect(check(report, "staleness").status).toBe("ok");
   });
 
   test("accepts disabled Claude auto-memory", async () => {

@@ -1,9 +1,10 @@
 import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
+import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
 import { CLAUDE_HOOK_COMMAND, getBrainStatus, memoryFiles, OPENBRAIN_BEGIN } from "./openbrain.js";
 import { claudeHome, claudeSettingsPath, codexHome, configPath, dreamsDir } from "./paths.js";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
@@ -56,15 +57,25 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   if (activeBrain) {
     await databaseCheck(checks, { ...options, brain: activeBrain });
     await dreamCheck(checks, { ...options, brain: activeBrain });
+    await stalenessCheck(checks, { ...options, brain: activeBrain });
+    await reviewBacklogCheck(checks, { ...options, brain: activeBrain });
+    await duplicateCheck(checks, { ...options, brain: activeBrain });
   }
   await embeddingsCheck(checks, config, options);
 
   if (config.agents.codex.enabled) {
     checks.push(await adapterCheck("codex adapter", path.join(codexHome(options), "AGENTS.md"), "codex"));
+    checks.push({
+      status: "warn",
+      name: "codex enforcement",
+      detail:
+        "advisory-only: Codex relies solely on the AGENTS.md block; nothing enforces that agents follow it"
+    });
   }
   if (config.agents.claude.enabled) {
     checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
-    checks.push(await claudeHookCheck(options));
+    const hook = await claudeHookCheck(options);
+    checks.push(hook, claudeEnforcementCheck(hook));
     checks.push(await claudeAutoMemoryCheck(options));
   }
 
@@ -196,6 +207,73 @@ async function dreamCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
   }
 }
 
+// A review backlog this old means the quality loop has stalled: dream keeps
+// proposing cleanups and no agent is actioning them, so surface it to the
+// human running doctor.
+const REVIEW_BACKLOG_DAYS = 7;
+
+async function reviewBacklogCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
+  try {
+    const pending = await listPendingReviews(options);
+    const now = options.now?.() ?? new Date();
+    const cutoff = now.getTime() - REVIEW_BACKLOG_DAYS * 24 * 60 * 60 * 1000;
+    let aged = 0;
+    for (const review of pending) {
+      if ((await stat(review.path)).mtime.getTime() < cutoff) {
+        aged += 1;
+      }
+    }
+    if (aged > 0) {
+      checks.push({
+        status: "warn",
+        name: "review backlog",
+        detail:
+          `${aged} of ${pending.length} pending review file${pending.length === 1 ? "" : "s"} ` +
+          `older than ${REVIEW_BACKLOG_DAYS} days`,
+        hint: 'Run "openbrain review list", action each file, then "openbrain review done <file>".'
+      });
+      return;
+    }
+    checks.push({
+      status: "ok",
+      name: "review backlog",
+      detail: pending.length
+        ? `${pending.length} pending review file${pending.length === 1 ? "" : "s"}, none older than ${REVIEW_BACKLOG_DAYS} days`
+        : "no pending reviews"
+    });
+  } catch (error) {
+    checks.push({ status: "fail", name: "review backlog", detail: message(error) });
+  }
+}
+
+async function duplicateCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
+  try {
+    const db = await openDatabase(options, { readonly: true });
+    let groups: ReturnType<typeof findConsolidationGroups>;
+    try {
+      groups = findConsolidationGroups(db, options.now?.() ?? new Date());
+    } finally {
+      db.close();
+    }
+    if (groups.length > 0) {
+      checks.push({
+        status: "warn",
+        name: "duplicates",
+        detail: `${groups.length} group${groups.length === 1 ? "" : "s"} of near-duplicate durable memories`,
+        hint: 'Run "openbrain dream run", then action the consolidation review it writes.'
+      });
+      return;
+    }
+    checks.push({
+      status: "ok",
+      name: "duplicates",
+      detail: "no near-duplicate durable memories detected"
+    });
+  } catch (error) {
+    checks.push({ status: "fail", name: "duplicates", detail: message(error) });
+  }
+}
+
 async function embeddingsCheck(checks: DoctorCheck[], config: OpenBrainConfig, options: DoctorOptions) {
   if (!config.embeddings.enabled) {
     checks.push({ status: "ok", name: "embeddings", detail: "disabled by config; search is FTS-only" });
@@ -277,6 +355,59 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
     detail: `SessionStart hook missing from ${file}`,
     hint: "openbrain agents sync claude"
   };
+}
+
+// Derived from claudeHookCheck's result so the settings file is read once.
+function claudeEnforcementCheck(hook: DoctorCheck): DoctorCheck {
+  if (hook.status === "ok") {
+    return {
+      status: "ok",
+      name: "claude enforcement",
+      detail: "hook-backed: the SessionStart hook injects the OpenBrain reminder every session"
+    };
+  }
+  return {
+    status: "warn",
+    name: "claude enforcement",
+    detail: "advisory-only: without the SessionStart hook, agents rely on the CLAUDE.md block alone",
+    hint: "openbrain agents sync claude"
+  };
+}
+
+// Non-compliance is invisible when it happens: agents that stop running
+// memory add raise no error, the files just stop appearing. Flag a brain with
+// no writes for this long as likely non-compliance.
+const STALE_BRAIN_DAYS = 30;
+const STALE_BRAIN_MS = STALE_BRAIN_DAYS * 24 * 60 * 60 * 1000;
+
+async function stalenessCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
+  try {
+    const files = await memoryFiles(options);
+    // An empty brain is fine right after install; config.json's age tells
+    // whether enough time has passed that something should exist by now.
+    const timestamps = files.length
+      ? await Promise.all(files.map(async (file) => (await stat(file)).mtimeMs))
+      : [(await stat(configPath(options))).mtimeMs];
+    const now = (options.now?.() ?? new Date()).getTime();
+    if (now - Math.max(...timestamps) > STALE_BRAIN_MS) {
+      checks.push({
+        status: "warn",
+        name: "staleness",
+        detail: `no memories recorded in the last ${STALE_BRAIN_DAYS} days; agents may not be following the OpenBrain instructions`,
+        hint: "Check the adapter and enforcement checks, then re-sync: openbrain agents sync codex|claude"
+      });
+      return;
+    }
+    checks.push({
+      status: "ok",
+      name: "staleness",
+      detail: files.length
+        ? `newest memory written within the last ${STALE_BRAIN_DAYS} days`
+        : `no memories yet, but the install is newer than ${STALE_BRAIN_DAYS} days`
+    });
+  } catch (error) {
+    checks.push({ status: "warn", name: "staleness", detail: message(error) });
+  }
 }
 
 async function claudeAutoMemoryCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
