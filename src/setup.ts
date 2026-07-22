@@ -45,7 +45,9 @@ export async function setupOpenBrain(
   }
 
   const codexAgentFile = syncCodex ? await syncCodexAgent(options) : undefined;
-  const claudeAgentFile = syncClaude ? await syncClaudeAgent(options) : undefined;
+  const claudeAgentFile = syncClaude
+    ? await syncClaudeAgent(options, input.disableClaudeAutoMemory)
+    : undefined;
   const currentBrain =
     input.brainScope === "paths"
       ? await getCurrentBrain({ ...options, cwd: pathRules[0]!.path })
