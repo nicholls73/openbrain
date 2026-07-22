@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/nicholls73/openbrain/compare/v0.6.0...v0.6.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* prevent competing Claude memory stores ([#80](https://github.com/nicholls73/openbrain/issues/80)) ([c856f16](https://github.com/nicholls73/openbrain/commit/c856f16d58e28af8cd404392351e05443f205fe6))
+
 ## [0.6.0](https://github.com/nicholls73/openbrain/compare/v0.5.0...v0.6.0) (2026-07-21)
 
 
