@@ -1,6 +1,10 @@
-export type MemoryType = "preference" | "workflow" | "workspace" | "decision" | "episode";
-export type StoredMemoryType = MemoryType | "project";
-export type DurableMemoryType = Exclude<MemoryType, "episode">;
+export const DURABLE_MEMORY_TYPES = ["preference", "workflow", "workspace", "decision"] as const;
+export const MEMORY_TYPES = [...DURABLE_MEMORY_TYPES, "episode"] as const;
+export const STORED_MEMORY_TYPES = [...MEMORY_TYPES, "project"] as const;
+
+export type DurableMemoryType = (typeof DURABLE_MEMORY_TYPES)[number];
+export type MemoryType = (typeof MEMORY_TYPES)[number];
+export type StoredMemoryType = (typeof STORED_MEMORY_TYPES)[number];
 export type MemoryConfidence = "low" | "medium" | "high";
 export type MemorySensitivity = "standard" | "private";
 
@@ -165,6 +169,7 @@ export interface SearchMemoriesOptions extends OpenBrainOptions {
   confidence?: MemoryConfidence;
   durableOnly?: boolean;
   includePrivate?: boolean;
+  limit?: number;
 }
 
 export interface PromoteMemoryInput {
@@ -202,19 +207,13 @@ export interface DreamSkippedResult {
 export type DreamResult = DreamRunResult | DreamSkippedResult;
 
 export function isMemoryType(value: string | undefined): value is MemoryType {
-  return (
-    value === "preference" ||
-    value === "workflow" ||
-    value === "workspace" ||
-    value === "decision" ||
-    value === "episode"
-  );
+  return (MEMORY_TYPES as readonly string[]).includes(value ?? "");
 }
 
 export function isDurableMemoryType(value: string | undefined): value is DurableMemoryType {
-  return value === "preference" || value === "workflow" || value === "workspace" || value === "decision";
+  return (DURABLE_MEMORY_TYPES as readonly string[]).includes(value ?? "");
 }
 
 export function isStoredMemoryType(value: string | undefined): value is StoredMemoryType {
-  return isMemoryType(value) || value === "project";
+  return (STORED_MEMORY_TYPES as readonly string[]).includes(value ?? "");
 }

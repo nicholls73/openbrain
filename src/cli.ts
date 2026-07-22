@@ -2,6 +2,7 @@
 import { createInterface } from "node:readline/promises";
 import { renderCliError } from "./cli-error.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
+import { runMcpServer } from "./mcp.js";
 import {
   addBrainPath,
   addMemory,
@@ -107,6 +108,17 @@ async function main(argv: string[]) {
   if (area === "hook" && command === "session-start") {
     const reminder = await runSessionStartHook();
     console.log(reminder);
+    return;
+  }
+
+  if (area === "mcp") {
+    // Connect the transport before the best-effort daily maintenance the
+    // session-start hook runs: dream can embed for minutes on a cold model,
+    // and blocking the initialize handshake past the client's startup
+    // timeout would mark the server failed. Errors (including an unassigned
+    // path) must not stop the server either.
+    await runMcpServer();
+    void dreamMaybe().catch(() => {});
     return;
   }
 
@@ -646,6 +658,7 @@ function usage() {
   openbrain memory delete <id>
   openbrain brain current
   openbrain brain add-path <brain> [path]
+  openbrain mcp
   openbrain review list
   openbrain review done <file>
   openbrain doctor

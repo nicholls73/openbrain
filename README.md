@@ -184,6 +184,24 @@ openbrain index rebuild
 openbrain prune
 ```
 
+## MCP Server
+
+`openbrain mcp` starts a stdio MCP server exposing the memory operations as first-class tools: `memory_search`, `memory_add`, `memory_update`, `memory_merge`, `memory_promote`, `memory_list`, `memory_show`, `memory_delete`, `brain_current`, `review_list`, and `review_done`. Tool descriptions carry the when-to-use guidance, so MCP-capable agents get discoverable memory tools instead of shell round-trips. The brain resolves from the server's working directory, matching CLI behaviour, and daily dreaming runs once at server start.
+
+Register with Claude Code:
+
+```bash
+claude mcp add openbrain -- openbrain mcp
+```
+
+Register with Codex in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.openbrain]
+command = "openbrain"
+args = ["mcp"]
+```
+
 ## Multiple Brains
 
 Use one brain for the whole computer, or split your machine into separate memory containers.
