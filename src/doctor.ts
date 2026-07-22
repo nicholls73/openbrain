@@ -4,14 +4,8 @@ import path from "node:path";
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
-import { findConsolidationGroups } from "./maintenance.js";
-import {
-  CLAUDE_HOOK_COMMAND,
-  getBrainStatus,
-  listPendingReviews,
-  memoryFiles,
-  OPENBRAIN_BEGIN
-} from "./openbrain.js";
+import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
+import { CLAUDE_HOOK_COMMAND, getBrainStatus, memoryFiles, OPENBRAIN_BEGIN } from "./openbrain.js";
 import { claudeHome, claudeSettingsPath, codexHome, configPath, dreamsDir } from "./paths.js";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 import { fetchLatestVersion, INSTALL_COMMAND, isNewerVersion, readCurrentVersion } from "./update.js";
@@ -63,6 +57,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   if (activeBrain) {
     await databaseCheck(checks, { ...options, brain: activeBrain });
     await dreamCheck(checks, { ...options, brain: activeBrain });
+    await stalenessCheck(checks, { ...options, brain: activeBrain });
     await reviewBacklogCheck(checks, { ...options, brain: activeBrain });
     await duplicateCheck(checks, { ...options, brain: activeBrain });
   }
@@ -70,10 +65,18 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
 
   if (config.agents.codex.enabled) {
     checks.push(await adapterCheck("codex adapter", path.join(codexHome(options), "AGENTS.md"), "codex"));
+    checks.push({
+      status: "warn",
+      name: "codex enforcement",
+      detail:
+        "advisory-only: Codex relies solely on the AGENTS.md block; nothing enforces that agents follow it"
+    });
   }
   if (config.agents.claude.enabled) {
     checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
-    checks.push(await claudeHookCheck(options));
+    const hook = await claudeHookCheck(options);
+    checks.push(hook, claudeEnforcementCheck(hook));
+    checks.push(await claudeAutoMemoryCheck(options));
   }
 
   checks.push(await pathCheck());
@@ -261,7 +264,11 @@ async function duplicateCheck(checks: DoctorCheck[], options: OpenBrainOptions) 
       });
       return;
     }
-    checks.push({ status: "ok", name: "duplicates", detail: "no near-duplicate durable memories" });
+    checks.push({
+      status: "ok",
+      name: "duplicates",
+      detail: "no near-duplicate durable memories detected"
+    });
   } catch (error) {
     checks.push({ status: "fail", name: "duplicates", detail: message(error) });
   }
@@ -347,6 +354,78 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
     name: "claude hook",
     detail: `SessionStart hook missing from ${file}`,
     hint: "openbrain agents sync claude"
+  };
+}
+
+// Derived from claudeHookCheck's result so the settings file is read once.
+function claudeEnforcementCheck(hook: DoctorCheck): DoctorCheck {
+  if (hook.status === "ok") {
+    return {
+      status: "ok",
+      name: "claude enforcement",
+      detail: "hook-backed: the SessionStart hook injects the OpenBrain reminder every session"
+    };
+  }
+  return {
+    status: "warn",
+    name: "claude enforcement",
+    detail: "advisory-only: without the SessionStart hook, agents rely on the CLAUDE.md block alone",
+    hint: "openbrain agents sync claude"
+  };
+}
+
+// Non-compliance is invisible when it happens: agents that stop running
+// memory add raise no error, the files just stop appearing. Flag a brain with
+// no writes for this long as likely non-compliance.
+const STALE_BRAIN_DAYS = 30;
+const STALE_BRAIN_MS = STALE_BRAIN_DAYS * 24 * 60 * 60 * 1000;
+
+async function stalenessCheck(checks: DoctorCheck[], options: OpenBrainOptions) {
+  try {
+    const files = await memoryFiles(options);
+    // An empty brain is fine right after install; config.json's age tells
+    // whether enough time has passed that something should exist by now.
+    const timestamps = files.length
+      ? await Promise.all(files.map(async (file) => (await stat(file)).mtimeMs))
+      : [(await stat(configPath(options))).mtimeMs];
+    const now = (options.now?.() ?? new Date()).getTime();
+    if (now - Math.max(...timestamps) > STALE_BRAIN_MS) {
+      checks.push({
+        status: "warn",
+        name: "staleness",
+        detail: `no memories recorded in the last ${STALE_BRAIN_DAYS} days; agents may not be following the OpenBrain instructions`,
+        hint: "Check the adapter and enforcement checks, then re-sync: openbrain agents sync codex|claude"
+      });
+      return;
+    }
+    checks.push({
+      status: "ok",
+      name: "staleness",
+      detail: files.length
+        ? `newest memory written within the last ${STALE_BRAIN_DAYS} days`
+        : `no memories yet, but the install is newer than ${STALE_BRAIN_DAYS} days`
+    });
+  } catch (error) {
+    checks.push({ status: "warn", name: "staleness", detail: message(error) });
+  }
+}
+
+async function claudeAutoMemoryCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
+  const file = claudeSettingsPath(options);
+  try {
+    const settings = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    if (settings.autoMemoryEnabled === false) {
+      return { status: "ok", name: "claude auto-memory", detail: `disabled in ${file}` };
+    }
+  } catch {
+    // The hook check already reports missing or invalid settings; retain the
+    // actionable auto-memory warning because Claude enables it by default.
+  }
+  return {
+    status: "warn",
+    name: "claude auto-memory",
+    detail: `Claude's competing memory store is not explicitly disabled in ${file}`,
+    hint: `Set "autoMemoryEnabled": false, or run "openbrain agents sync claude --disable-claude-auto-memory yes".`
   };
 }
 

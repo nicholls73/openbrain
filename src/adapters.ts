@@ -36,19 +36,19 @@ export async function syncCodexAgent(options: OpenBrainOptions = {}) {
   return syncInstructionFile(codexHome(options), "AGENTS.md", options);
 }
 
-export async function syncClaudeAgent(options: OpenBrainOptions = {}) {
+export async function syncClaudeAgent(options: OpenBrainOptions = {}, disableAutoMemory = false) {
   const file = await syncInstructionFile(claudeHome(options), "CLAUDE.md", options);
   // The CLAUDE.md block is advisory only. Install a SessionStart hook so Claude
   // Code actually runs daily dreaming and is reminded to search memory on every
   // session, without relying on the agent to follow the instructions.
-  await syncClaudeSettings(options);
+  await syncClaudeSettings(options, disableAutoMemory);
   return file;
 }
 
 // Merge the OpenBrain SessionStart hook into the user's Claude Code
 // settings.json, preserving any existing settings and hooks. Idempotent: a
 // re-sync replaces our prior entry rather than appending a duplicate.
-export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
+export async function syncClaudeSettings(options: OpenBrainOptions = {}, disableAutoMemory = false) {
   const file = claudeSettingsPath(options);
   await mkdir(path.dirname(file), { recursive: true });
 
@@ -94,6 +94,9 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}) {
 
   hooks.SessionStart = cleaned;
   settings.hooks = hooks;
+  if (disableAutoMemory) {
+    settings.autoMemoryEnabled = false;
+  }
 
   await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return file;

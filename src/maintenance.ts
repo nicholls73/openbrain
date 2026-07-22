@@ -459,11 +459,16 @@ export function findConsolidationGroups(db: Awaited<ReturnType<typeof openDataba
   );
   const embeddings = rows.map((row) => decodeEmbedding(row.embedding));
 
-  // Greedy clustering over pairwise cosine similarity. Durable memory counts
-  // are small (hundreds), so the O(n^2) scan is fine and keeps this free of
-  // extra dependencies.
-  const groupOf = new Map<number, number>();
-  const groups: ConsolidationGroup[] = [];
+  // Connected components over pairwise cosine similarity. Durable memory
+  // counts are small (hundreds), so the O(n^2) scan is fine.
+  const parent = rows.map((_, index) => index);
+  const find = (index: number): number => {
+    if (parent[index] !== index) {
+      parent[index] = find(parent[index]!);
+    }
+    return parent[index]!;
+  };
+  const matches: Array<{ left: number; right: number; similarity: number }> = [];
   for (let left = 0; left < rows.length; left++) {
     const leftEmbedding = embeddings[left];
     if (!leftEmbedding) {
@@ -481,20 +486,23 @@ export function findConsolidationGroups(db: Awaited<ReturnType<typeof openDataba
       if (similarity < DUPLICATE_SIMILARITY) {
         continue;
       }
-      const existing = groupOf.get(left);
-      if (existing === undefined) {
-        groupOf.set(left, groups.length);
-        groupOf.set(right, groups.length);
-        groups.push({ similarity, rows: [rows[left]!, rows[right]!] });
-      } else if (!groupOf.has(right)) {
-        groupOf.set(right, existing);
-        const group = groups[existing]!;
-        group.rows.push(rows[right]!);
-        group.similarity = Math.max(group.similarity, similarity);
-      }
+      matches.push({ left, right, similarity });
+      parent[find(right)] = find(left);
     }
   }
-  return groups;
+
+  const groups = new Map<number, { similarity: number; indexes: Set<number> }>();
+  for (const match of matches) {
+    const root = find(match.left);
+    const group = groups.get(root) ?? { similarity: 0, indexes: new Set<number>() };
+    group.similarity = Math.max(group.similarity, match.similarity);
+    group.indexes.add(match.left).add(match.right);
+    groups.set(root, group);
+  }
+  return [...groups.values()].map((group) => ({
+    similarity: group.similarity,
+    rows: [...group.indexes].sort((left, right) => left - right).map((index) => rows[index]!)
+  }));
 }
 
 function renderConsolidationReport(groups: ConsolidationGroup[]) {
