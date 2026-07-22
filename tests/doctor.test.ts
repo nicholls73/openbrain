@@ -144,6 +144,70 @@ describe("openbrain doctor", () => {
     expect(report.failures).toBe(0);
   });
 
+  test("reports codex as advisory-only and a hooked claude as hook-backed", async () => {
+    const home = await tempHome();
+    await setupOpenBrain({ brainScope: "default", syncCodex: true, syncClaude: true }, options(home));
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "codex enforcement")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("advisory-only")
+    });
+    expect(check(report, "claude enforcement")).toMatchObject({
+      status: "ok",
+      detail: expect.stringContaining("hook-backed")
+    });
+  });
+
+  test("reports claude as advisory-only when the SessionStart hook is missing", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "claude enforcement")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("advisory-only"),
+      hint: "openbrain agents sync claude"
+    });
+  });
+
+  test("warns when the newest memory is older than the stale threshold", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Deploy with the checklist." }, options(home));
+
+    const later = () => new Date(Date.now() + 40 * 24 * 60 * 60 * 1000);
+    const report = await runDoctor({ ...options(home), now: later, fetch: offlineFetch });
+
+    expect(check(report, "staleness")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("agents may not be following")
+    });
+  });
+
+  test("warns when an empty brain's install is older than the stale threshold", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const later = () => new Date(Date.now() + 40 * 24 * 60 * 60 * 1000);
+    const report = await runDoctor({ ...options(home), now: later, fetch: offlineFetch });
+
+    expect(check(report, "staleness")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("agents may not be following")
+    });
+  });
+
+  test("reports a recently written brain as fresh", async () => {
+    const home = await tempHome();
+    await addMemory({ type: "workflow", text: "Deploy with the checklist." }, options(home));
+
+    const report = await runDoctor({ ...options(home), now: () => new Date(), fetch: offlineFetch });
+
+    expect(check(report, "staleness").status).toBe("ok");
+  });
+
   test("accepts disabled Claude auto-memory", async () => {
     const home = await tempHome();
     await setupOpenBrain(
