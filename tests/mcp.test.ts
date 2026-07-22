@@ -98,6 +98,55 @@ describe("OpenBrain MCP server", () => {
     expect(results.map((result) => result.id)).toContain(record.id);
   });
 
+  test("honors and validates a per-call memory_search limit", async () => {
+    await tempHome();
+    const client = await connectedClient();
+
+    for (const text of ["Shared retrieval term alpha.", "Shared retrieval term beta."]) {
+      await client.callTool({ name: "memory_add", arguments: { type: "workflow", text } });
+    }
+
+    const searched = await client.callTool({
+      name: "memory_search",
+      arguments: { query: "shared retrieval term", limit: 1 }
+    });
+    expect(JSON.parse(resultText(searched))).toHaveLength(1);
+
+    const invalid = await client.callTool({
+      name: "memory_search",
+      arguments: { query: "shared retrieval term", limit: 0 }
+    });
+    expect(invalid.isError).toBe(true);
+  });
+
+  test("lists summaries without bodies or private memories", async () => {
+    await tempHome();
+    const client = await connectedClient();
+
+    const added = await client.callTool({
+      name: "memory_add",
+      arguments: { type: "workflow", text: "Visible memory. public-body-marker" }
+    });
+    const visible = JSON.parse(resultText(added)) as { id: string };
+    await client.callTool({
+      name: "memory_add",
+      arguments: { type: "preference", text: "Hidden memory. private-body-marker", sensitivity: "private" }
+    });
+
+    const listed = await client.callTool({ name: "memory_list", arguments: {} });
+    expect(JSON.parse(resultText(listed))).toEqual([
+      {
+        id: visible.id,
+        type: "workflow",
+        createdAt: expect.any(String),
+        title: "Visible memory"
+      }
+    ]);
+    expect(resultText(listed)).not.toContain("public-body-marker");
+    expect(resultText(listed)).not.toContain("Hidden memory");
+    expect(resultText(listed)).not.toContain("private-body-marker");
+  });
+
   test("returns a tool error instead of crashing when no brain is assigned", async () => {
     const home = await tempHome();
     await writeFile(

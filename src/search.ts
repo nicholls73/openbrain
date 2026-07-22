@@ -8,7 +8,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
   const { config, options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
   const db = await openDatabase(scopedOptions, { readonly: true });
   try {
-    const limit = config.retrieval.limit;
+    const limit = options.limit ?? config.retrieval.limit;
     const searchLimit = limit * 20;
     const now = options.now?.() ?? new Date();
 

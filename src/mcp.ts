@@ -52,11 +52,17 @@ export async function createMcpServer() {
         query: z.string().describe("Short description of the current task or fact to look up"),
         type: storedMemoryType.optional(),
         durableOnly: z.boolean().optional(),
-        includePrivate: z.boolean().optional().describe("Include private memories; requires explicit opt-in")
+        includePrivate: z.boolean().optional().describe("Include private memories; requires explicit opt-in"),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Maximum results; defaults to configured limit")
       }
     },
-    ({ query, type, durableOnly, includePrivate }) =>
-      toolResult(() => searchMemories(query, { type, durableOnly, includePrivate }))
+    ({ query, type, durableOnly, includePrivate, limit }) =>
+      toolResult(() => searchMemories(query, { type, durableOnly, includePrivate, limit }))
   );
 
   server.registerTool(
@@ -114,8 +120,13 @@ export async function createMcpServer() {
 
   server.registerTool(
     "memory_list",
-    { description: "List every memory in the current brain with id, type, creation date, and title." },
-    () => toolResult(() => listMemories())
+    { description: "List non-private memory summaries with id, type, creation date, and title." },
+    () =>
+      toolResult(async () =>
+        (await listMemories())
+          .filter((memory) => memory.metadata.sensitivity !== "private")
+          .map(({ id, type, createdAt, title }) => ({ id, type, createdAt, title }))
+      )
   );
 
   server.registerTool(

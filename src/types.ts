@@ -169,6 +169,7 @@ export interface SearchMemoriesOptions extends OpenBrainOptions {
   confidence?: MemoryConfidence;
   durableOnly?: boolean;
   includePrivate?: boolean;
+  limit?: number;
 }
 
 export interface PromoteMemoryInput {
