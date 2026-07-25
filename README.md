@@ -289,15 +289,7 @@ OPENBRAIN_BRAIN=brain-a openbrain memory search "deployment workflow"
 
 ## Local Development
 
-For contributors working on OpenBrain itself:
-
-```bash
-pnpm install
-pnpm build
-pnpm test
-```
-
-Set `OPENBRAIN_HOME` and `CODEX_HOME` to test against temporary directories.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, required checks, and pull-request requirements.
 
 ## Notes
 
