@@ -39,6 +39,7 @@ export interface OpenBrainConfig {
   };
   retrieval: {
     limit: number;
+    minVectorSimilarity: number;
   };
   agents: {
     codex: {

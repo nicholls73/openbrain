@@ -246,7 +246,8 @@ Example `~/.openbrain/config.json`:
     "loadTimeoutMs": 30000
   },
   "retrieval": {
-    "limit": 5
+    "limit": 5,
+    "minVectorSimilarity": 0.25
   },
   "agents": {
     "codex": {
@@ -293,7 +294,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, required checks, and pull-requ
 
 ## Notes
 
-The first semantic search in a session is slower because the local embedding model has to load, and on first ever use download into the OpenBrain model cache. Model load has its own budget (`embeddings.loadTimeoutMs`, default 30s) separate from embedding itself (`embeddings.timeoutMs`, default 5s). When embeddings fail or time out, search falls back to SQLite FTS and prints a warning so the degradation is visible.
+The first semantic search in a session is slower because the local embedding model has to load, and on first ever use download into the OpenBrain model cache. Model load has its own budget (`embeddings.loadTimeoutMs`, default 30s) separate from embedding itself (`embeddings.timeoutMs`, default 5s). When embeddings fail or time out, search falls back to SQLite FTS and prints a warning so the degradation is visible. Vector-only results below `retrieval.minVectorSimilarity` (default `0.25`) are omitted; adjust it if you change embedding models.
 
 Dreaming is maintenance and review only. It prunes expired episodes, rebuilds the retrieval index from Markdown, and writes an audit log. When there is something to action, it also writes promotion candidate and consolidation review files. It does not invent, promote, merge, or delete memories automatically.
 
