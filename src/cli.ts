@@ -585,21 +585,28 @@ function parseSearchArgs(args: string[]) {
       continue;
     }
     if (arg === "--type") {
-      options.type = parseStoredType(args[++index]);
+      options.type = parseStoredType(requireOptionValue(args[++index], "--type"));
       continue;
     }
     if (arg === "--scope") {
-      options.scope = args[++index];
+      options.scope = requireOptionValue(args[++index], "--scope");
       continue;
     }
     if (arg === "--confidence") {
-      options.confidence = parseConfidence(args[++index]);
+      options.confidence = parseConfidence(requireOptionValue(args[++index], "--confidence"));
       continue;
     }
     queryTokens.push(arg);
   }
 
   return { query: queryTokens.join(" ").trim(), options };
+}
+
+function requireOptionValue(value: string | undefined, optionName: string): string {
+  if (value === undefined) {
+    throw new Error(`${optionName} requires a value`);
+  }
+  return value;
 }
 
 function parseStoredType(value: string | undefined): StoredMemoryType | undefined {
