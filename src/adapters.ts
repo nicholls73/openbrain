@@ -56,9 +56,13 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}, disable
   try {
     const raw = await readFile(file, "utf8");
     const parsed = raw.trim() ? JSON.parse(raw) : {};
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      settings = parsed as Record<string, unknown>;
+    // Refuse to overwrite content we do not understand: this file belongs to
+    // the user, and replacing an unexpected shape with our own would silently
+    // discard their configuration.
+    if (!isRecord(parsed)) {
+      throw new Error(unexpectedSettingsMessage(file, "the top-level value is not an object"));
     }
+    settings = parsed;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
@@ -66,7 +70,13 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}, disable
     }
   }
 
+  if (settings.hooks !== undefined && !isRecord(settings.hooks)) {
+    throw new Error(unexpectedSettingsMessage(file, '"hooks" is not an object'));
+  }
   const hooks = isRecord(settings.hooks) ? { ...settings.hooks } : {};
+  if (hooks.SessionStart !== undefined && !Array.isArray(hooks.SessionStart)) {
+    throw new Error(unexpectedSettingsMessage(file, '"hooks.SessionStart" is not an array'));
+  }
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
 
   // Drop any prior OpenBrain command entries, then any group left empty, so
@@ -165,6 +175,13 @@ export async function runSessionStartHook(options: OpenBrainOptions = {}): Promi
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unexpectedSettingsMessage(file: string, problem: string) {
+  return (
+    `OpenBrain cannot update ${file}: ${problem}. ` +
+    "Fix or remove the malformed value, then rerun openbrain agents sync claude."
+  );
 }
 
 async function syncInstructionFile(dir: string, fileName: string, options: OpenBrainOptions = {}) {
