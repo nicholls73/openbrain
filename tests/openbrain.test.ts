@@ -469,7 +469,7 @@ describe("OpenBrain local storage", () => {
       dimensions: 384,
       timeoutMs: 5000
     });
-    expect(config.retrieval.limit).toBe(5);
+    expect(config.retrieval).toEqual({ limit: 5, minVectorSimilarity: 0.25 });
     expect(config.agents.codex.enabled).toBe(true);
     expect(config.agents.claude.enabled).toBe(true);
   });
@@ -1134,6 +1134,46 @@ describe("OpenBrain local storage", () => {
     const results = await searchMemories("review comments", options(home, embedder));
 
     expect(results[0]?.title).toBe("When Copilot feedback appears on a PR");
+    expect(results[0]?.match).toBe("vector");
+  });
+
+  test("returns no result when only weak vector candidates exist", async () => {
+    const home = await tempHome();
+    const query = "purple wombat trampoline xylophone";
+    const embedder: EmbeddingProvider = {
+      async embed(text: string) {
+        return text === query ? [0.2, Math.sqrt(0.96)] : [1, 0];
+      }
+    };
+    await initOpenBrain(options(home, embedder));
+    await addMemory(
+      { type: "workflow", text: "Deploy production after the release checklist passes." },
+      options(home, embedder)
+    );
+
+    expect(await searchMemories(query, options(home, embedder))).toEqual([]);
+  });
+
+  test("retains vector candidates whose similarity equals the threshold", async () => {
+    const home = await tempHome();
+    const query = "purple wombat trampoline xylophone";
+    // cosine([1 x16], one-hot) = 1 / sqrt(16) = exactly 0.25, the default floor.
+    const embedder: EmbeddingProvider = {
+      async embed(text: string) {
+        return text === query
+          ? Array.from({ length: 16 }, () => 1)
+          : [1, ...Array.from({ length: 15 }, () => 0)];
+      }
+    };
+    await initOpenBrain(options(home, embedder));
+    await addMemory(
+      { type: "workflow", text: "Deploy production after the release checklist passes." },
+      options(home, embedder)
+    );
+
+    const results = await searchMemories(query, options(home, embedder));
+
+    expect(results).toHaveLength(1);
     expect(results[0]?.match).toBe("vector");
   });
 

@@ -24,7 +24,8 @@ export const DEFAULT_CONFIG: OpenBrainConfig = {
     loadTimeoutMs: 30000
   },
   retrieval: {
-    limit: 5
+    limit: 5,
+    minVectorSimilarity: 0.25
   },
   agents: {
     codex: {

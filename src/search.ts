@@ -72,7 +72,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
           return true;
         })
         .map(({ row, embedding }) => ({ row, score: cosine(queryEmbedding, embedding) }))
-        .filter((result) => result.score > 0)
+        .filter((result) => result.score >= config.retrieval.minVectorSimilarity)
         .sort((left, right) => right.score - left.score)
         .slice(0, limit)
         .map((result) => result.row);
