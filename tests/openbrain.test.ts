@@ -1154,6 +1154,29 @@ describe("OpenBrain local storage", () => {
     expect(await searchMemories(query, options(home, embedder))).toEqual([]);
   });
 
+  test("retains vector candidates whose similarity equals the threshold", async () => {
+    const home = await tempHome();
+    const query = "purple wombat trampoline xylophone";
+    // cosine([1 x16], one-hot) = 1 / sqrt(16) = exactly 0.25, the default floor.
+    const embedder: EmbeddingProvider = {
+      async embed(text: string) {
+        return text === query
+          ? Array.from({ length: 16 }, () => 1)
+          : [1, ...Array.from({ length: 15 }, () => 0)];
+      }
+    };
+    await initOpenBrain(options(home, embedder));
+    await addMemory(
+      { type: "workflow", text: "Deploy production after the release checklist passes." },
+      options(home, embedder)
+    );
+
+    const results = await searchMemories(query, options(home, embedder));
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.match).toBe("vector");
+  });
+
   test("skips stored embeddings whose dimensions no longer match the model", async () => {
     const home = await tempHome();
     const wideEmbedder: EmbeddingProvider = {
