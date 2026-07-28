@@ -136,6 +136,8 @@ function expandHome(value: string) {
   // homedir() falls back to the OS user database when HOME is unset; the old
   // process.env.HOME fallback silently resolved "~/x" to "<cwd>/~/x".
   const home = homedir();
+  // Not dead code: with HOME set but empty ("HOME="), homedir() returns ""
+  // on POSIX instead of consulting the user database.
   if (!home) {
     throw new Error(`Cannot expand ${value}: no home directory could be resolved`);
   }

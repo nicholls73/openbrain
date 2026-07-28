@@ -11,11 +11,12 @@ import {
   utimes,
   writeFile
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { canonicalPathForRule } from "../src/brains.js";
 import { loadConfig } from "../src/config.js";
 import {
   isSqliteNodeAbiMismatch,
@@ -192,6 +193,14 @@ describe("OpenBrain local storage", () => {
     await expect(searchMemories("anything", options(home))).resolves.toEqual([]);
 
     await expect(stat(path.join(home, "brains", "main", "openbrain.db"))).resolves.toBeDefined();
+  });
+
+  test("expands ~ and ~/ to the home directory but leaves ~user paths alone", () => {
+    expect(canonicalPathForRule("~")).toBe(canonicalPathForRule(homedir()));
+    expect(canonicalPathForRule("~/no-such-openbrain-dir")).toBe(
+      path.join(homedir(), "no-such-openbrain-dir")
+    );
+    expect(canonicalPathForRule("~foo/x")).toBe(path.resolve("~foo/x"));
   });
 
   test("selects isolated brains from configured current working directory paths", async () => {
