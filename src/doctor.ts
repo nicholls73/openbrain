@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { claudeSettingsShapeProblem } from "./adapters.js";
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
@@ -343,6 +344,29 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
   const file = claudeSettingsPath(options);
   try {
     const raw = await readFile(file, "utf8");
+    // A substring match alone can pass on a file Claude Code will not load, so
+    // a broken settings file must fail this check even when the command string
+    // is present somewhere inside it.
+    let parsed: unknown = {};
+    try {
+      parsed = raw.trim() ? JSON.parse(raw) : {};
+    } catch {
+      return {
+        status: "warn",
+        name: "claude hook",
+        detail: `${file} is not valid JSON; Claude Code ignores it, so the SessionStart hook does not run`,
+        hint: "Fix the JSON, then rerun: openbrain agents sync claude"
+      };
+    }
+    const problem = claudeSettingsShapeProblem(parsed);
+    if (problem) {
+      return {
+        status: "warn",
+        name: "claude hook",
+        detail: `${file} is malformed (${problem}); the SessionStart hook does not run`,
+        hint: "Fix or remove the malformed value, then rerun: openbrain agents sync claude"
+      };
+    }
     if (raw.includes(CLAUDE_HOOK_COMMAND)) {
       return { status: "ok", name: "claude hook", detail: `SessionStart hook installed in ${file}` };
     }

@@ -59,10 +59,11 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}, disable
     // Refuse to overwrite content we do not understand: this file belongs to
     // the user, and replacing an unexpected shape with our own would silently
     // discard their configuration.
-    if (!isRecord(parsed)) {
-      throw new Error(unexpectedSettingsMessage(file, "the top-level value is not an object"));
+    const problem = claudeSettingsShapeProblem(parsed);
+    if (problem) {
+      throw new Error(unexpectedSettingsMessage(file, problem));
     }
-    settings = parsed;
+    settings = parsed as Record<string, unknown>;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
@@ -70,13 +71,7 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}, disable
     }
   }
 
-  if (settings.hooks !== undefined && !isRecord(settings.hooks)) {
-    throw new Error(unexpectedSettingsMessage(file, '"hooks" is not an object'));
-  }
   const hooks = isRecord(settings.hooks) ? { ...settings.hooks } : {};
-  if (hooks.SessionStart !== undefined && !Array.isArray(hooks.SessionStart)) {
-    throw new Error(unexpectedSettingsMessage(file, '"hooks.SessionStart" is not an array'));
-  }
   const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
 
   // Drop any prior OpenBrain command entries, then any group left empty, so
@@ -175,6 +170,26 @@ export async function runSessionStartHook(options: OpenBrainOptions = {}): Promi
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Shapes the settings merge cannot handle losslessly. Shared with doctor so a
+// file the sync would refuse is also reported as unhealthy instead of passing
+// the hook check on a substring match.
+export function claudeSettingsShapeProblem(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return "the top-level value is not an object";
+  }
+  if (value.hooks !== undefined && !isRecord(value.hooks)) {
+    return '"hooks" is not an object';
+  }
+  if (
+    isRecord(value.hooks) &&
+    value.hooks.SessionStart !== undefined &&
+    !Array.isArray(value.hooks.SessionStart)
+  ) {
+    return '"hooks.SessionStart" is not an array';
+  }
+  return null;
 }
 
 function unexpectedSettingsMessage(file: string, problem: string) {
