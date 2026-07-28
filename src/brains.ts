@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 
@@ -129,13 +130,16 @@ export function sanitizeBrainName(value: string) {
 }
 
 function expandHome(value: string) {
-  if (value === "~") {
-    return process.env.HOME ?? value;
+  if (value !== "~" && !value.startsWith("~/")) {
+    return value;
   }
-  if (value.startsWith("~/")) {
-    return path.join(process.env.HOME ?? "~", value.slice(2));
+  // homedir() falls back to the OS user database when HOME is unset; the old
+  // process.env.HOME fallback silently resolved "~/x" to "<cwd>/~/x".
+  const home = homedir();
+  if (!home) {
+    throw new Error(`Cannot expand ${value}: no home directory could be resolved`);
   }
-  return value;
+  return value === "~" ? home : path.join(home, value.slice(2));
 }
 
 function normalizePath(value: string) {
