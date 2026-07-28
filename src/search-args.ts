@@ -47,7 +47,7 @@ function requireOptionValue(value: string | undefined, optionName: string): stri
   return value;
 }
 
-function parseStoredType(value: string | undefined): StoredMemoryType | undefined {
+function parseStoredType(value: string): StoredMemoryType {
   if (isStoredMemoryType(value)) {
     return value;
   }
