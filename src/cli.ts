@@ -28,18 +28,16 @@ import {
   updateMemory
 } from "./openbrain.js";
 import { claudeSettingsPath } from "./paths.js";
+import { parseConfidence, parseSearchArgs } from "./search-args.js";
 import {
   type DurableMemoryType,
   isDurableMemoryType,
   isMemoryType,
-  isStoredMemoryType,
-  type MemoryConfidence,
   type MemorySensitivity,
   type MemoryType,
   type SearchResult,
   type SetupInput,
-  type SetupPathRuleInput,
-  type StoredMemoryType
+  type SetupPathRuleInput
 } from "./types.js";
 import { applyUpdate, maybePrintUpdateNotice, planUpdate, type UpdatePlan } from "./update.js";
 
@@ -564,58 +562,6 @@ function parseYesNo(value: string, optionName: string) {
   throw new Error(`${optionName} must be yes or no`);
 }
 
-function parseSearchArgs(args: string[]) {
-  const queryTokens: string[] = [];
-  const options: {
-    type?: StoredMemoryType;
-    scope?: string;
-    confidence?: MemoryConfidence;
-    durableOnly?: boolean;
-    includePrivate?: boolean;
-  } = {};
-
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
-    if (arg === "--durable-only") {
-      options.durableOnly = true;
-      continue;
-    }
-    if (arg === "--include-private") {
-      options.includePrivate = true;
-      continue;
-    }
-    if (arg === "--type") {
-      options.type = parseStoredType(requireOptionValue(args[++index], "--type"));
-      continue;
-    }
-    if (arg === "--scope") {
-      options.scope = requireOptionValue(args[++index], "--scope");
-      continue;
-    }
-    if (arg === "--confidence") {
-      options.confidence = parseConfidence(requireOptionValue(args[++index], "--confidence"));
-      continue;
-    }
-    queryTokens.push(arg);
-  }
-
-  return { query: queryTokens.join(" ").trim(), options };
-}
-
-function requireOptionValue(value: string | undefined, optionName: string): string {
-  if (value === undefined) {
-    throw new Error(`${optionName} requires a value`);
-  }
-  return value;
-}
-
-function parseStoredType(value: string | undefined): StoredMemoryType | undefined {
-  if (isStoredMemoryType(value)) {
-    return value;
-  }
-  throw new Error("--type must be preference|workflow|workspace|decision|episode|project");
-}
-
 function parseDurableType(value: string | undefined): DurableMemoryType | undefined {
   if (value === undefined) {
     return undefined;
@@ -624,16 +570,6 @@ function parseDurableType(value: string | undefined): DurableMemoryType | undefi
     return value;
   }
   throw new Error("durable memory type must be preference|workflow|workspace|decision");
-}
-
-function parseConfidence(value: string | undefined): MemoryConfidence | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (value === "low" || value === "medium" || value === "high") {
-    return value;
-  }
-  throw new Error("--confidence must be low|medium|high");
 }
 
 function parseSensitivity(value: string | undefined): MemorySensitivity | undefined {
