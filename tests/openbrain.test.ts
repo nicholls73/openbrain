@@ -98,7 +98,7 @@ describe("OpenBrain local storage", () => {
     expect(dbSource).not.toContain("node:sqlite");
   });
 
-  test("explains how to recover from a better-sqlite3 Node ABI mismatch", () => {
+  test("explains how to recover from a better-sqlite3 Node ABI mismatch", async () => {
     expect(
       isSqliteNodeAbiMismatch(
         new Error(
@@ -106,9 +106,19 @@ describe("OpenBrain local storage", () => {
         )
       )
     ).toBe(true);
-    expect(sqliteNativeModuleRecoveryMessage()).toContain("pnpm rebuild better-sqlite3");
-    expect(sqliteNativeModuleRecoveryMessage()).toContain("default install");
-    expect(sqliteNativeModuleRecoveryMessage()).toContain("OPENBRAIN_INSTALL_DIR");
+    // An installer tree ships scripts/install.sh; an npm install publishes dist/ alone.
+    const installerMessage = sqliteNativeModuleRecoveryMessage(repoRoot);
+    expect(installerMessage).toContain(`cd "${repoRoot}" && pnpm rebuild better-sqlite3`);
+    expect(installerMessage).toContain("scripts/install.sh | bash");
+
+    const npmRoot = await mkdtemp(path.join(tmpdir(), "openbrain-npm-"));
+    try {
+      const npmMessage = sqliteNativeModuleRecoveryMessage(npmRoot);
+      expect(npmMessage).toContain(`cd "${npmRoot}" && npm rebuild better-sqlite3`);
+      expect(npmMessage).toContain("npm install -g @nicholls73/openbrain --force");
+    } finally {
+      await rm(npmRoot, { recursive: true, force: true });
+    }
   });
 
   test("wraps better-sqlite3 constructor ABI mismatch errors", () => {

@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
-import { dirname } from "node:path";
+import path, { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { dbPath } from "./paths.js";
 import type { MemoryRecord, OpenBrainOptions } from "./types.js";
@@ -179,12 +181,24 @@ export function openSqliteDatabase(
   }
 }
 
-export function sqliteNativeModuleRecoveryMessage() {
+// The rebuild has to run where OpenBrain is actually installed, which differs
+// per install method: the installer's own tree, or the active Node's global
+// node_modules for an npm install. Derive it from this module rather than
+// printing the installer's default layout, which does not exist for npm.
+// Install flavour is detected the same way planUpdate() does it: only the
+// installer tree ships scripts/, since the npm package publishes dist/ alone.
+export function sqliteNativeModuleRecoveryMessage(
+  packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)))
+) {
+  const installer = existsSync(path.join(packageRoot, "scripts", "install.sh"));
   return (
-    "OpenBrain SQLite native module was built for another Node.js version.\n\n" +
-    "Fix default install:\n  cd ~/.local/share/openbrain/app && pnpm rebuild better-sqlite3\n\n" +
-    "If you set OPENBRAIN_INSTALL_DIR, run the rebuild in that custom install directory.\n\n" +
-    "Or reinstall OpenBrain:\n  curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash"
+    "OpenBrain SQLite native module was built for another Node.js version " +
+    `(running Node ${process.versions.node}, ABI ${process.versions.modules}).\n\n` +
+    `Rebuild it:\n  cd "${packageRoot}" && ${installer ? "pnpm" : "npm"} rebuild better-sqlite3\n\n` +
+    "Or reinstall OpenBrain:\n  " +
+    (installer
+      ? "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash"
+      : "npm install -g @nicholls73/openbrain --force")
   );
 }
 
