@@ -197,7 +197,10 @@ export function sqliteNativeModuleRecoveryMessage(
     `Rebuild it:\n  cd "${packageRoot}" && ${installer ? "pnpm" : "npm"} rebuild better-sqlite3\n\n` +
     "Or reinstall OpenBrain:\n  " +
     (installer
-      ? "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | bash"
+      ? "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | " +
+        // Passed unconditionally: a bare reinstall would install to the
+        // installer's default directory and leave a custom install untouched.
+        `OPENBRAIN_INSTALL_DIR="${packageRoot}" bash`
       : "npm install -g @nicholls73/openbrain --force")
   );
 }
