@@ -185,23 +185,26 @@ export function openSqliteDatabase(
 // per install method: the installer's own tree, or the active Node's global
 // node_modules for an npm install. Derive it from this module rather than
 // printing the installer's default layout, which does not exist for npm.
-// Install flavour is detected the same way planUpdate() does it: only the
-// installer tree ships scripts/, since the npm package publishes dist/ alone.
+// Detect source checkouts before installer trees: both ship scripts/, but the
+// installer must never replace a source checkout.
 export function sqliteNativeModuleRecoveryMessage(
   packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)))
 ) {
-  const installer = existsSync(path.join(packageRoot, "scripts", "install.sh"));
+  const sourceCheckout = existsSync(path.join(packageRoot, ".git"));
+  const installer = !sourceCheckout && existsSync(path.join(packageRoot, "scripts", "install.sh"));
   return (
     "OpenBrain SQLite native module was built for another Node.js version " +
     `(running Node ${process.versions.node}, ABI ${process.versions.modules}).\n\n` +
-    `Rebuild it:\n  cd "${packageRoot}" && ${installer ? "pnpm" : "npm"} rebuild better-sqlite3\n\n` +
-    "Or reinstall OpenBrain:\n  " +
-    (installer
-      ? "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | " +
-        // Passed unconditionally: a bare reinstall would install to the
-        // installer's default directory and leave a custom install untouched.
-        `OPENBRAIN_INSTALL_DIR="${packageRoot}" bash`
-      : "npm install -g @nicholls73/openbrain --force")
+    `Rebuild it:\n  cd "${packageRoot}" && ${sourceCheckout || installer ? "pnpm" : "npm"} rebuild better-sqlite3` +
+    (sourceCheckout
+      ? ""
+      : "\n\nOr reinstall OpenBrain:\n  " +
+        (installer
+          ? "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | " +
+            // Passed unconditionally: a bare reinstall would install to the
+            // installer's default directory and leave a custom install untouched.
+            `OPENBRAIN_INSTALL_DIR="${packageRoot}" bash`
+          : "npm install -g @nicholls73/openbrain --force"))
   );
 }
 

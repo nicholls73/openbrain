@@ -106,10 +106,16 @@ describe("OpenBrain local storage", () => {
         )
       )
     ).toBe(true);
-    // An installer tree ships scripts/install.sh; an npm install publishes dist/ alone.
-    const installerMessage = sqliteNativeModuleRecoveryMessage(repoRoot);
-    expect(installerMessage).toContain(`cd "${repoRoot}" && pnpm rebuild better-sqlite3`);
-    expect(installerMessage).toContain(`install.sh | OPENBRAIN_INSTALL_DIR="${repoRoot}" bash`);
+    const sourceMessage = sqliteNativeModuleRecoveryMessage(repoRoot);
+    expect(sourceMessage).toContain(`cd "${repoRoot}" && pnpm rebuild better-sqlite3`);
+    expect(sourceMessage).not.toContain("Or reinstall OpenBrain");
+
+    const installerRoot = await tempHome();
+    await mkdir(path.join(installerRoot, "scripts"));
+    await writeFile(path.join(installerRoot, "scripts", "install.sh"), "");
+    const installerMessage = sqliteNativeModuleRecoveryMessage(installerRoot);
+    expect(installerMessage).toContain(`cd "${installerRoot}" && pnpm rebuild better-sqlite3`);
+    expect(installerMessage).toContain(`install.sh | OPENBRAIN_INSTALL_DIR="${installerRoot}" bash`);
 
     const npmRoot = await mkdtemp(path.join(tmpdir(), "openbrain-npm-"));
     try {
