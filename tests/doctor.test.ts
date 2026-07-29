@@ -147,6 +147,48 @@ describe("openbrain doctor", () => {
     expect(report.failures).toBe(0);
   });
 
+  test("warns when settings.json is malformed even though the hook string is present", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const claudeDir = path.join(home, ".claude");
+    await mkdir(claudeDir, { recursive: true });
+    // The command string is present, but SessionStart is an object instead of
+    // an array, so Claude Code never runs the hook. A substring check alone
+    // would report ok here.
+    await writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: { hooks: [{ type: "command", command: "openbrain hook session-start" }] }
+        }
+      }),
+      "utf8"
+    );
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "claude hook")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining('"hooks.SessionStart" is not an array'),
+      hint: expect.stringContaining("openbrain agents sync claude")
+    });
+  });
+
+  test("warns when settings.json is not valid JSON", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+    const claudeDir = path.join(home, ".claude");
+    await mkdir(claudeDir, { recursive: true });
+    await writeFile(path.join(claudeDir, "settings.json"), '{ "hooks": openbrain hook session-start', "utf8");
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "claude hook")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("not valid JSON")
+    });
+  });
+
   async function writePendingReview(home: string, mtime: Date) {
     const dir = dreamsDir({ ...options(home), brain: "main" });
     await mkdir(dir, { recursive: true });

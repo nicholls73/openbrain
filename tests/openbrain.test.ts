@@ -1667,6 +1667,26 @@ describe("Claude adapter sync", () => {
     expect(commands).toContain("openbrain hook session-start");
   });
 
+  test.each([
+    ["a non-object top-level value", JSON.stringify([1, 2, 3]), "the top-level value is not an object"],
+    ["a non-object hooks value", JSON.stringify({ hooks: [] }), '"hooks" is not an object'],
+    [
+      "a non-array SessionStart value",
+      JSON.stringify({ hooks: { SessionStart: { hooks: [] } } }, null, 2),
+      '"hooks.SessionStart" is not an array'
+    ]
+  ])("refuses to overwrite %s instead of discarding it", async (_label, malformed, message) => {
+    const home = await tempHome();
+    const claudeHome = path.join(home, ".claude");
+    await initOpenBrain(options(home));
+    await mkdir(claudeHome, { recursive: true });
+    const settingsFile = path.join(claudeHome, "settings.json");
+    await writeFile(settingsFile, malformed, "utf8");
+
+    await expect(syncClaudeSettings({ ...options(home), claudeHome })).rejects.toThrow(message);
+    expect(await readFile(settingsFile, "utf8")).toBe(malformed);
+  });
+
   test("disables Claude auto-memory only with explicit consent", async () => {
     const home = await tempHome();
     const claudeHome = path.join(home, ".claude");

@@ -56,9 +56,14 @@ export async function syncClaudeSettings(options: OpenBrainOptions = {}, disable
   try {
     const raw = await readFile(file, "utf8");
     const parsed = raw.trim() ? JSON.parse(raw) : {};
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      settings = parsed as Record<string, unknown>;
+    // Refuse to overwrite content we do not understand: this file belongs to
+    // the user, and replacing an unexpected shape with our own would silently
+    // discard their configuration.
+    const problem = claudeSettingsShapeProblem(parsed);
+    if (problem) {
+      throw new Error(unexpectedSettingsMessage(file, problem));
     }
+    settings = parsed as Record<string, unknown>;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
@@ -165,6 +170,33 @@ export async function runSessionStartHook(options: OpenBrainOptions = {}): Promi
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// Shapes the settings merge cannot handle losslessly. Shared with doctor so a
+// file the sync would refuse is also reported as unhealthy instead of passing
+// the hook check on a substring match.
+export function claudeSettingsShapeProblem(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return "the top-level value is not an object";
+  }
+  if (value.hooks !== undefined && !isRecord(value.hooks)) {
+    return '"hooks" is not an object';
+  }
+  if (
+    isRecord(value.hooks) &&
+    value.hooks.SessionStart !== undefined &&
+    !Array.isArray(value.hooks.SessionStart)
+  ) {
+    return '"hooks.SessionStart" is not an array';
+  }
+  return null;
+}
+
+function unexpectedSettingsMessage(file: string, problem: string) {
+  return (
+    `OpenBrain cannot update ${file}: ${problem}. ` +
+    "Fix or remove the malformed value, then rerun openbrain agents sync claude."
+  );
 }
 
 async function syncInstructionFile(dir: string, fileName: string, options: OpenBrainOptions = {}) {
