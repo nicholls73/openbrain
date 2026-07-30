@@ -133,7 +133,7 @@ jobs:
           gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
           echo "pr=${pr_number}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
-      - name: Start release approval
+      - name: Request release approval
         if: steps.prepare.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
