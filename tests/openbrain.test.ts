@@ -99,7 +99,7 @@ describe("OpenBrain local storage", () => {
     expect(dbSource).not.toContain("node:sqlite");
   });
 
-  test("explains how to recover from a better-sqlite3 Node ABI mismatch", () => {
+  test("explains how to recover from a better-sqlite3 Node ABI mismatch", async () => {
     expect(
       isSqliteNodeAbiMismatch(
         new Error(
@@ -107,9 +107,31 @@ describe("OpenBrain local storage", () => {
         )
       )
     ).toBe(true);
-    expect(sqliteNativeModuleRecoveryMessage()).toContain("pnpm rebuild better-sqlite3");
-    expect(sqliteNativeModuleRecoveryMessage()).toContain("default install");
-    expect(sqliteNativeModuleRecoveryMessage()).toContain("OPENBRAIN_INSTALL_DIR");
+    const sourceRoot = await tempHome();
+    await mkdir(path.join(sourceRoot, ".git"));
+    const sourceMessage = sqliteNativeModuleRecoveryMessage(sourceRoot);
+    expect(sourceMessage).toContain(`cd '${sourceRoot}' && pnpm rebuild better-sqlite3`);
+    expect(sourceMessage).not.toContain("Or reinstall OpenBrain");
+
+    const installerRoot = await tempHome();
+    await mkdir(path.join(installerRoot, "scripts"));
+    await writeFile(path.join(installerRoot, "scripts", "install.sh"), "");
+    const installerMessage = sqliteNativeModuleRecoveryMessage(installerRoot);
+    expect(installerMessage).toContain(`cd '${installerRoot}' && pnpm rebuild better-sqlite3`);
+    expect(installerMessage).toContain(`install.sh | OPENBRAIN_INSTALL_DIR='${installerRoot}' bash`);
+
+    const npmRoot = await mkdtemp(path.join(tmpdir(), "openbrain-npm-"));
+    try {
+      const npmMessage = sqliteNativeModuleRecoveryMessage(npmRoot);
+      expect(npmMessage).toContain(`cd '${npmRoot}' && npm rebuild better-sqlite3`);
+      expect(npmMessage).toContain("npm install -g @nicholls73/openbrain --force");
+    } finally {
+      await rm(npmRoot, { recursive: true, force: true });
+    }
+
+    expect(sqliteNativeModuleRecoveryMessage('/tmp/$HOME/$(oops)/`tick`/"double"/it\'s')).toContain(
+      "cd '/tmp/$HOME/$(oops)/`tick`/\"double\"/it'\\''s' && npm rebuild better-sqlite3"
+    );
   });
 
   test("wraps better-sqlite3 constructor ABI mismatch errors", () => {
