@@ -105,7 +105,8 @@ jobs:
         with:
           release-type: node
           target-branch: main
-      - name: Run release checks and start approval
+      - name: Run release checks
+        id: release_checks
         if: steps.prepare.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -130,8 +131,17 @@ jobs:
           )"
           ci_run_id="$(jq -er '.workflow_run_id' <<< "${dispatch}")"
           gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          echo "pr=${pr_number}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Start release approval
+        if: steps.prepare.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.release_checks.outputs.pr }}
+          VERSION: ${{ steps.release_checks.outputs.version }}
+        run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
             -f event_type=prepared-release \
             -f "client_payload[sha]=${GITHUB_SHA}" \
-            -f "client_payload[pr]=${pr_number}" \
-            -f "client_payload[version]=${version}"
+            -f "client_payload[pr]=${RELEASE_PR}" \
+            -f "client_payload[version]=${VERSION}"
