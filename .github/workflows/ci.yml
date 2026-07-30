@@ -105,8 +105,8 @@ jobs:
         with:
           release-type: node
           target-branch: main
-      - name: Run release checks
-        id: release_checks
+      - name: Run checks
+        id: checks
         if: steps.prepare.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,8 +137,8 @@ jobs:
         if: steps.prepare.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_PR: ${{ steps.release_checks.outputs.pr }}
-          VERSION: ${{ steps.release_checks.outputs.version }}
+          RELEASE_PR: ${{ steps.checks.outputs.pr }}
+          VERSION: ${{ steps.checks.outputs.version }}
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
             -f event_type=prepared-release \
