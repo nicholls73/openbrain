@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -81,6 +82,8 @@ jobs:
     needs: [lint, build, test, embeddings-integration]
     runs-on: ubuntu-latest
     permissions:
+      actions: write
+      checks: read
       contents: write
       issues: write
       pull-requests: write
@@ -102,19 +105,31 @@ jobs:
         with:
           release-type: node
           target-branch: main
-      - name: Start release approval
+      - name: Run release checks and start approval
         if: steps.prepare.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PR: ${{ steps.prepare.outputs.pr }}
         run: |
           pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
-          pr_head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.sha')"
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+          pr_head_sha="$(jq -r '.head.sha' <<< "${pr}")"
+          pr_head_ref="$(jq -r '.head.ref' <<< "${pr}")"
           version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${pr_head_sha}" --jq '.version')"
-          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.((0|[1-9][0-9]*)|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if [[ ! "${version}" =~ ${semver} ]]; then
             echo "::error::Release Please produced an invalid version: ${version}"
             exit 1
           fi
+          dispatch="$(
+            gh api --method POST \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/dispatches" \
+              -f "ref=${pr_head_ref}" \
+              -F return_run_details=true
+          )"
+          ci_run_id="$(jq -er '.workflow_run_id' <<< "${dispatch}")"
+          gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
             -f event_type=prepared-release \
             -f "client_payload[sha]=${GITHUB_SHA}" \
