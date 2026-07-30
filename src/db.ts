@@ -192,10 +192,11 @@ export function sqliteNativeModuleRecoveryMessage(
 ) {
   const sourceCheckout = existsSync(path.join(packageRoot, ".git"));
   const installer = !sourceCheckout && existsSync(path.join(packageRoot, "scripts", "install.sh"));
+  const quotedPackageRoot = `'${packageRoot.replaceAll("'", "'\\''")}'`;
   return (
     "OpenBrain SQLite native module was built for another Node.js version " +
     `(running Node ${process.versions.node}, ABI ${process.versions.modules}).\n\n` +
-    `Rebuild it:\n  cd "${packageRoot}" && ${sourceCheckout || installer ? "pnpm" : "npm"} rebuild better-sqlite3` +
+    `Rebuild it:\n  cd ${quotedPackageRoot} && ${sourceCheckout || installer ? "pnpm" : "npm"} rebuild better-sqlite3` +
     (sourceCheckout
       ? ""
       : "\n\nOr reinstall OpenBrain:\n  " +
@@ -203,7 +204,7 @@ export function sqliteNativeModuleRecoveryMessage(
           ? "curl -fsSL https://raw.githubusercontent.com/nicholls73/openbrain/main/scripts/install.sh | " +
             // Passed unconditionally: a bare reinstall would install to the
             // installer's default directory and leave a custom install untouched.
-            `OPENBRAIN_INSTALL_DIR="${packageRoot}" bash`
+            `OPENBRAIN_INSTALL_DIR=${quotedPackageRoot} bash`
           : "npm install -g @nicholls73/openbrain --force"))
   );
 }
