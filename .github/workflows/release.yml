@@ -43,7 +43,10 @@ jobs:
             gh pr list --repo "${GITHUB_REPOSITORY}" --state open --base main \
               --limit 100 \
               --json number,headRefName \
-              --jq '[.[] | select(.headRefName | startswith("release-please--branches--main--components--"))]'
+              --jq '[.[] | select(
+                .headRefName == "release-please--branches--main" or
+                (.headRefName | startswith("release-please--branches--main--components--"))
+              )]'
           )"
           candidate_count="$(jq 'length' <<< "${candidates}")"
           if [[ "${candidate_count}" -ne 1 ]]; then
