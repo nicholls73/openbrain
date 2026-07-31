@@ -17,6 +17,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      statuses: write
     outputs:
       release_created: ${{ steps.finalize.outputs.release_created }}
       tag_name: ${{ steps.finalize.outputs.tag_name }}
@@ -88,6 +89,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ steps.candidate.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
         run: |
           dispatch="$(
             gh api --method POST \
@@ -96,8 +98,27 @@ jobs:
               -f "ref=${HEAD_REF}" \
               -F return_run_details=true
           )"
-          gh run watch "$(jq -er '.workflow_run_id' <<< "${dispatch}")" \
-            --repo "${GITHUB_REPOSITORY}" --exit-status
+          ci_run_id="$(jq -er '.workflow_run_id' <<< "${dispatch}")"
+          ci_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${ci_run_id}"
+          contexts=(lint build test embeddings-integration)
+          for context in "${contexts[@]}"; do
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+              -f state=pending -f "context=${context}" \
+              -f description="Release CI is running" -f "target_url=${ci_run_url}" > /dev/null
+          done
+          if gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status; then
+            state=success
+            description="Passed in release CI"
+          else
+            state=failure
+            description="Failed in release CI"
+          fi
+          for context in "${contexts[@]}"; do
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+              -f "state=${state}" -f "context=${context}" \
+              -f "description=${description}" -f "target_url=${ci_run_url}" > /dev/null
+          done
+          [[ "${state}" == success ]]
       - name: Merge release PR
         env:
           EXPECTED_HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
