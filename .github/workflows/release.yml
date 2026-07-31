@@ -4,79 +4,68 @@ run-name: Release latest from main
 on:
   workflow_dispatch:
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  prepare:
-    name: prepare latest release
+  release:
+    name: release latest from main
     runs-on: ubuntu-latest
-    concurrency:
-      group: release-approval
-      cancel-in-progress: true
     permissions:
       actions: write
-      checks: read
       contents: write
+      issues: write
       pull-requests: write
     outputs:
-      main_sha: ${{ steps.candidate.outputs.main_sha }}
-      pr: ${{ steps.candidate.outputs.pr }}
-      head_sha: ${{ steps.candidate.outputs.head_sha }}
-      version: ${{ steps.candidate.outputs.version }}
+      release_created: ${{ steps.finalize.outputs.release_created }}
+      tag_name: ${{ steps.finalize.outputs.tag_name }}
+      version: ${{ steps.finalize.outputs.version }}
     steps:
-      - name: Find release candidate
-        id: candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Require main
         run: |
           if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
             echo "::error::Run the Release workflow from main"
             exit 1
           fi
-          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
-          pulls="$(
-            gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
-              -f state=open \
-              -f base=main \
-              -F per_page=100
-          )"
+      - name: Update release PR
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          release-type: node
+          target-branch: main
+          skip-github-release: true
+      - name: Find release candidate
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           candidates="$(
-            jq -c --arg repo "${GITHUB_REPOSITORY}" '[
-              .[] | select(
-                .head.repo.full_name == $repo and
-                .user.login == "github-actions[bot]" and
-                (.head.ref | startswith("release-please--branches--main--components--"))
-              )
-            ]' <<< "${pulls}"
+            gh pr list --repo "${GITHUB_REPOSITORY}" --state open --base main \
+              --json number,headRefName \
+              --jq '[.[] | select(.headRefName | startswith("release-please--branches--main--components--"))]'
           )"
           candidate_count="$(jq 'length' <<< "${candidates}")"
           if [[ "${candidate_count}" -ne 1 ]]; then
             echo "::error::Expected exactly one open Release Please PR, found ${candidate_count}"
             exit 1
           fi
-          pr="$(jq -c '.[0]' <<< "${candidates}")"
-          pr_number="$(jq -r '.number' <<< "${pr}")"
-          pr_head_sha="$(jq -r '.head.sha' <<< "${pr}")"
-          if [[ "$(jq -r '.base.sha' <<< "${pr}")" != "${main_sha}" ]]; then
-            gh pr update-branch "${pr_number}" --repo "${GITHUB_REPOSITORY}" --rebase
-            for _ in {1..30}; do
-              pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
-              if [[ "$(jq -r '.base.sha' <<< "${pr}")" == "${main_sha}" ]]; then
-                break
-              fi
-              sleep 2
-            done
-          fi
-          if [[ "$(jq -r '.base.sha' <<< "${pr}")" != "${main_sha}" ]]; then
-            echo "::error::Release PR did not update to latest main"
+          pr_number="$(jq -r '.[0].number' <<< "${candidates}")"
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          if ! jq -e \
+            --arg main "${main_sha}" \
+            --arg repo "${GITHUB_REPOSITORY}" '
+              .state == "open" and
+              .base.ref == "main" and
+              .base.sha == $main and
+              .head.repo.full_name == $repo and
+              .user.login == "github-actions[bot]"
+            ' <<< "${pr}" > /dev/null; then
+            echo "::error::Release PR does not match latest main"
             exit 1
           fi
-          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
-          if [[ "${current_sha}" != "${main_sha}" ]]; then
-            echo "::error::main changed while preparing the release; run Release again"
-            exit 1
-          fi
-          pr_head_sha="$(jq -r '.head.sha' <<< "${pr}")"
-          pr_head_ref="$(jq -r '.head.ref' <<< "${pr}")"
-          version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${pr_head_sha}" --jq '.version')"
+          head_sha="$(jq -r '.head.sha' <<< "${pr}")"
+          version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${head_sha}" --jq '.version')"
           semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.((0|[1-9][0-9]*)|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
           if [[ ! "${version}" =~ ${semver} ]]; then
             echo "::error::Release Please produced an invalid version: ${version}"
@@ -84,8 +73,8 @@ jobs:
           fi
           echo "main_sha=${main_sha}" >> "${GITHUB_OUTPUT}"
           echo "pr=${pr_number}" >> "${GITHUB_OUTPUT}"
-          echo "head_sha=${pr_head_sha}" >> "${GITHUB_OUTPUT}"
-          echo "head_ref=${pr_head_ref}" >> "${GITHUB_OUTPUT}"
+          echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
+          echo "head_ref=$(jq -r '.head.ref' <<< "${pr}")" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
       - name: Run checks
         env:
@@ -99,104 +88,22 @@ jobs:
               -f "ref=${HEAD_REF}" \
               -F return_run_details=true
           )"
-          ci_run_id="$(jq -er '.workflow_run_id' <<< "${dispatch}")"
-          gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
-      - name: Verify release candidate
+          gh run watch "$(jq -er '.workflow_run_id' <<< "${dispatch}")" \
+            --repo "${GITHUB_REPOSITORY}" --exit-status
+      - name: Merge release PR
         env:
           EXPECTED_HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
           EXPECTED_MAIN_SHA: ${{ steps.candidate.outputs.main_sha }}
-          EXPECTED_VERSION: ${{ steps.candidate.outputs.version }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_PR: ${{ steps.candidate.outputs.pr }}
-        run: |
-          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
-          if [[ "${current_sha}" != "${EXPECTED_MAIN_SHA}" ]]; then
-            echo "::error::main changed while checks were running; run Release again"
-            exit 1
-          fi
-          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${RELEASE_PR}")"
-          if ! jq -e \
-            --arg head "${EXPECTED_HEAD_SHA}" \
-            --arg main "${EXPECTED_MAIN_SHA}" \
-            --arg repo "${GITHUB_REPOSITORY}" '
-              .state == "open" and
-              .base.ref == "main" and
-              .base.sha == $main and
-              .head.sha == $head and
-              .head.repo.full_name == $repo and
-              .user.login == "github-actions[bot]"
-            ' <<< "${pr}" > /dev/null; then
-            echo "::error::Release PR changed while checks were running; run Release again"
-            exit 1
-          fi
-          pr_version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${EXPECTED_HEAD_SHA}" --jq '.version')"
-          if [[ "${pr_version}" != "${EXPECTED_VERSION}" ]]; then
-            echo "::error::Release PR version changed while checks were running; run Release again"
-            exit 1
-          fi
-
-  release:
-    name: release v${{ needs.prepare.outputs.version }}
-    needs: prepare
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    outputs:
-      release_created: ${{ steps.finalize.outputs.release_created }}
-      tag_name: ${{ steps.finalize.outputs.tag_name }}
-      version: ${{ steps.finalize.outputs.version }}
-    steps:
-      - name: Verify release request
-        env:
-          EXPECTED_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
-          EXPECTED_MAIN_SHA: ${{ needs.prepare.outputs.main_sha }}
-          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_PR: ${{ needs.prepare.outputs.pr }}
-        run: |
-          if [[ ! "${RELEASE_PR}" =~ ^[0-9]+$ ]]; then
-            echo "::error::Invalid release PR: ${RELEASE_PR}"
-            exit 1
-          fi
-          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
-          if [[ "${current_sha}" != "${EXPECTED_MAIN_SHA}" ]]; then
-            echo "::error::main changed after the release request; run Release again"
-            exit 1
-          fi
-          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${RELEASE_PR}")"
-          if ! jq -e \
-            --arg head "${EXPECTED_HEAD_SHA}" \
-            --arg main "${EXPECTED_MAIN_SHA}" \
-            --arg repo "${GITHUB_REPOSITORY}" '
-              .state == "open" and
-              .base.ref == "main" and
-              .base.sha == $main and
-              .head.sha == $head and
-              .head.repo.full_name == $repo and
-              .user.login == "github-actions[bot]"
-            ' <<< "${pr}" > /dev/null; then
-            echo "::error::Release PR changed after checks completed; run Release again"
-            exit 1
-          fi
-          pr_version="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${EXPECTED_HEAD_SHA}" --jq '.version')"
-          if [[ "${pr_version}" != "${EXPECTED_VERSION}" ]]; then
-            echo "::error::Release PR version ${pr_version} does not match requested version ${EXPECTED_VERSION}"
-            exit 1
-          fi
-      - name: Merge release PR
-        env:
-          EXPECTED_MAIN_SHA: ${{ needs.prepare.outputs.main_sha }}
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_PR: ${{ needs.prepare.outputs.pr }}
         run: |
           current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
           if [[ "${current_sha}" != "${EXPECTED_MAIN_SHA}" ]]; then
             echo "::error::main changed before merge; run Release again"
             exit 1
           fi
-          gh pr merge "${RELEASE_PR}" --repo "${GITHUB_REPOSITORY}" --merge
+          gh pr merge "${RELEASE_PR}" --repo "${GITHUB_REPOSITORY}" --merge \
+            --match-head-commit "${EXPECTED_HEAD_SHA}"
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: finalize
         with:
@@ -206,7 +113,7 @@ jobs:
       - name: Verify released version
         if: steps.finalize.outputs.release_created == 'true'
         env:
-          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          EXPECTED_VERSION: ${{ steps.candidate.outputs.version }}
           RELEASED_VERSION: ${{ steps.finalize.outputs.version }}
         run: |
           if [[ "${RELEASED_VERSION}" != "${EXPECTED_VERSION}" ]]; then
