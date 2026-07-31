@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.7.1](https://github.com/nicholls73/openbrain/compare/v0.7.0...v0.7.1) (2026-07-31)
+
+
+### Bug Fixes
+
+* delete FTS rows with a single DELETE statement ([#98](https://github.com/nicholls73/openbrain/issues/98)) ([15e58e9](https://github.com/nicholls73/openbrain/commit/15e58e910975a14d9176b124c72e7a506f6eb35d)), closes [#94](https://github.com/nicholls73/openbrain/issues/94)
+* filter irrelevant semantic search results ([#92](https://github.com/nicholls73/openbrain/issues/92)) ([0affeaa](https://github.com/nicholls73/openbrain/commit/0affeaab6b9393c8b8cec26d09ae5460d84ae277))
+* point SQLite rebuild at the real install directory ([#103](https://github.com/nicholls73/openbrain/issues/103)) ([019cfff](https://github.com/nicholls73/openbrain/commit/019cfffab17b2a4dd73dd28fb41a63be216dcc0f))
+* read release version from candidate ([#109](https://github.com/nicholls73/openbrain/issues/109)) ([0d44652](https://github.com/nicholls73/openbrain/commit/0d44652c9e3d455230644dc4004ca5b1775778e9))
+* refuse to overwrite malformed Claude settings values ([#100](https://github.com/nicholls73/openbrain/issues/100)) ([3ddcbaa](https://github.com/nicholls73/openbrain/commit/3ddcbaa864dcb7c52348de724fbe22839be87124))
+* report missing option value in memory search args ([#99](https://github.com/nicholls73/openbrain/issues/99)) ([42d89b0](https://github.com/nicholls73/openbrain/commit/42d89b0d78726699d93662b69e29d27d9e267967))
+* report release checks to branch protection ([#107](https://github.com/nicholls73/openbrain/issues/107)) ([709020d](https://github.com/nicholls73/openbrain/commit/709020d2c701fa104a3869c1607dc7094a48056e))
+* resolve home directory via os.homedir in expandHome ([#97](https://github.com/nicholls73/openbrain/issues/97)) ([954d33c](https://github.com/nicholls73/openbrain/commit/954d33cf4a0624f2b1e69d4c5cdcf7a9ccdef070))
+* restore automatic release approvals ([#108](https://github.com/nicholls73/openbrain/issues/108)) ([16cb34f](https://github.com/nicholls73/openbrain/commit/16cb34ff4e1f0e9f10fe0941e679e3e7458852b9))
+* run release checks before approval ([#104](https://github.com/nicholls73/openbrain/issues/104)) ([b0e9559](https://github.com/nicholls73/openbrain/commit/b0e95595eb546962459f864355160b4d87a99c37))
+
 ## [0.7.0](https://github.com/nicholls73/openbrain/compare/v0.6.1...v0.7.0) (2026-07-22)
 
 
