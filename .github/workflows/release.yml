@@ -1,17 +1,31 @@
 name: Release
-run-name: Release latest from main
+run-name: ${{ github.event_name == 'repository_dispatch' && format('Release v{0}', github.event.client_payload.version) || 'Release latest from main' }}
 
 on:
+  repository_dispatch:
+    types: [prepared-release]
   workflow_dispatch:
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
+  approval:
+    name: ${{ github.event_name == 'repository_dispatch' && format('approve v{0}', github.event.client_payload.version) || 'manual release requested' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'repository_dispatch' && 'release' || 'manual-release' }}
+    concurrency:
+      group: release-approval
+      cancel-in-progress: true
+    permissions: {}
+    steps:
+      - name: Approval granted
+        run: echo "Release approved"
+
   release:
     name: release latest from main
+    needs: approval
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     permissions:
       actions: write
       contents: write
