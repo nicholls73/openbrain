@@ -99,6 +99,16 @@ jobs:
           echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
           echo "head_ref=$(jq -r '.head.ref' <<< "${pr}")" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Verify approved version
+        if: github.event_name == 'repository_dispatch'
+        env:
+          APPROVED_VERSION: ${{ github.event.client_payload.version }}
+          CANDIDATE_VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          if [[ -z "${APPROVED_VERSION}" || "${APPROVED_VERSION}" != "${CANDIDATE_VERSION}" ]]; then
+            echo "::error::Approved version does not match release candidate"
+            exit 1
+          fi
       - name: Run checks
         env:
           GH_TOKEN: ${{ github.token }}
