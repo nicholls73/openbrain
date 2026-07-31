@@ -109,7 +109,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PR: ${{ steps.prepare.outputs.pr }}
         run: |
-          version="$(jq -er '.version' <<< "${RELEASE_PR}")"
+          pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
+          head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.sha')"
+          version="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${head_sha}" --jq '.version')"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
             -f event_type=prepared-release \
             -f "client_payload[version]=${version}"
