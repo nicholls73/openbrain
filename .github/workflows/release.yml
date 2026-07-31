@@ -99,26 +99,14 @@ jobs:
               -F return_run_details=true
           )"
           ci_run_id="$(jq -er '.workflow_run_id' <<< "${dispatch}")"
-          ci_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${ci_run_id}"
-          contexts=(lint build test embeddings-integration)
-          for context in "${contexts[@]}"; do
+          gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          for context in lint build test embeddings-integration; do
             gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
-              -f state=pending -f "context=${context}" \
-              -f description="Release CI is running" -f "target_url=${ci_run_url}" > /dev/null
+              -f state=success -f "context=${context}" \
+              -f description="Passed in release CI" \
+              -f "target_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${ci_run_id}" \
+              > /dev/null
           done
-          if gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status; then
-            state=success
-            description="Passed in release CI"
-          else
-            state=failure
-            description="Failed in release CI"
-          fi
-          for context in "${contexts[@]}"; do
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
-              -f "state=${state}" -f "context=${context}" \
-              -f "description=${description}" -f "target_url=${ci_run_url}" > /dev/null
-          done
-          [[ "${state}" == success ]]
       - name: Merge release PR
         env:
           EXPECTED_HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
