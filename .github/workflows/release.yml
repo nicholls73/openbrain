@@ -1,17 +1,31 @@
 name: Release
-run-name: Release latest from main
+run-name: ${{ github.event_name == 'repository_dispatch' && format('Release v{0}', github.event.client_payload.version) || 'Release latest from main' }}
 
 on:
+  repository_dispatch:
+    types: [prepared-release]
   workflow_dispatch:
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
+  approval:
+    name: ${{ github.event_name == 'repository_dispatch' && format('approve v{0}', github.event.client_payload.version) || 'manual release requested' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'repository_dispatch' && 'release' || 'manual-release' }}
+    concurrency:
+      group: release-approval
+      cancel-in-progress: true
+    permissions: {}
+    steps:
+      - name: Approval granted
+        run: echo "Release approved"
+
   release:
     name: release latest from main
+    needs: approval
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-publish
+      queue: max
     permissions:
       actions: write
       contents: write
@@ -85,6 +99,16 @@ jobs:
           echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
           echo "head_ref=$(jq -r '.head.ref' <<< "${pr}")" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - name: Verify approved version
+        if: github.event_name == 'repository_dispatch'
+        env:
+          APPROVED_VERSION: ${{ github.event.client_payload.version }}
+          CANDIDATE_VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          if [[ -z "${APPROVED_VERSION}" || "${APPROVED_VERSION}" != "${CANDIDATE_VERSION}" ]]; then
+            echo "::error::Approved version does not match release candidate"
+            exit 1
+          fi
       - name: Run checks
         env:
           GH_TOKEN: ${{ github.token }}
@@ -143,6 +167,9 @@ jobs:
     needs: release
     if: needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-publish
+      queue: max
     permissions:
       contents: write
       id-token: write
