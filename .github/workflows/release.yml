@@ -17,6 +17,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      statuses: write
     outputs:
       release_created: ${{ steps.finalize.outputs.release_created }}
       tag_name: ${{ steps.finalize.outputs.tag_name }}
@@ -88,6 +89,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ steps.candidate.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
         run: |
           dispatch="$(
             gh api --method POST \
@@ -96,8 +98,15 @@ jobs:
               -f "ref=${HEAD_REF}" \
               -F return_run_details=true
           )"
-          gh run watch "$(jq -er '.workflow_run_id' <<< "${dispatch}")" \
-            --repo "${GITHUB_REPOSITORY}" --exit-status
+          ci_run_id="$(jq -er '.workflow_run_id' <<< "${dispatch}")"
+          gh run watch "${ci_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          for context in lint build test embeddings-integration; do
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+              -f state=success -f "context=${context}" \
+              -f description="Passed in release CI" \
+              -f "target_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${ci_run_id}" \
+              > /dev/null
+          done
       - name: Merge release PR
         env:
           EXPECTED_HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
