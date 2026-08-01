@@ -39,10 +39,21 @@ import {
   type SetupInput,
   type SetupPathRuleInput
 } from "./types.js";
-import { applyUpdate, maybePrintUpdateNotice, planUpdate, type UpdatePlan } from "./update.js";
+import {
+  applyUpdate,
+  maybePrintUpdateNotice,
+  planUpdate,
+  readCurrentVersion,
+  type UpdatePlan
+} from "./update.js";
 
 async function main(argv: string[]) {
   const [area, command, ...rest] = argv;
+
+  if (area === "version" || area === "--version" || area === "-V") {
+    console.log(await readCurrentVersion());
+    return;
+  }
 
   if (area === "init") {
     await initOpenBrain();
@@ -628,6 +639,9 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
 
 function usage() {
   console.log(`Usage:
+  openbrain version
+  openbrain --version
+  openbrain -V
   openbrain init
   openbrain update [--yes]
   openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no] [--disable-claude-auto-memory yes|no]
