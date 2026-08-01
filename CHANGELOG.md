@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/nicholls73/openbrain/compare/v0.7.1...v0.7.2) (2026-08-01)
+
+
+### Bug Fixes
+
+* expose the CLI package version ([#110](https://github.com/nicholls73/openbrain/issues/110)) ([d9a1eb0](https://github.com/nicholls73/openbrain/commit/d9a1eb03532b192bb3b9e4bf3d0e3559db5594f5))
+
 ## [0.7.1](https://github.com/nicholls73/openbrain/compare/v0.7.0...v0.7.1) (2026-07-31)
 
 
