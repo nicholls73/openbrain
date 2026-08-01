@@ -84,6 +84,12 @@ describe("install script", () => {
     });
     expect(stdout).toContain("openbrain init");
     expect(stdout).toContain("openbrain setup");
+
+    const packageJson = JSON.parse(await readFile(path.join(installDir, "package.json"), "utf8"));
+    for (const argument of ["version", "--version", "-V"]) {
+      const result = await execFileAsync(path.join(binDir, "openbrain"), [argument]);
+      expect(result.stdout.trim()).toBe(packageJson.version);
+    }
   }, 90_000);
 
   test("can preserve an existing executable wrapper during an update", async () => {
