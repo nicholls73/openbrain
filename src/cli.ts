@@ -640,6 +640,8 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
 function usage() {
   console.log(`Usage:
   openbrain version
+  openbrain --version
+  openbrain -V
   openbrain init
   openbrain update [--yes]
   openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no] [--disable-claude-auto-memory yes|no]
