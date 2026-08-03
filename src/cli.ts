@@ -220,7 +220,7 @@ async function confirmUpdate(plan: UpdatePlan) {
   }
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return askYesNo(
+    return await askYesNo(
       prompt,
       `Update OpenBrain ${plan.currentVersion} -> ${plan.latestVersion}? [y/N] `,
       false
@@ -358,7 +358,7 @@ async function readClaudeAutoMemoryPreference(args: string[]) {
   }
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return askYesNo(
+    return await askYesNo(
       prompt,
       "Disable Claude Code's built-in auto-memory to avoid a competing memory store? [y/N] ",
       false
