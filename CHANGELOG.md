@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/nicholls73/openbrain/compare/v0.7.2...v0.7.3) (2026-08-03)
+
+
+### Bug Fixes
+
+* await y/N prompts so readline is not closed before input ([#112](https://github.com/nicholls73/openbrain/issues/112)) ([9445f43](https://github.com/nicholls73/openbrain/commit/9445f431d642ff3ec6caa83028530718a3a38988))
+
 ## [0.7.2](https://github.com/nicholls73/openbrain/compare/v0.7.1...v0.7.2) (2026-08-01)
 
 
