@@ -32,7 +32,7 @@ export function enforceDimensions(provider: EmbeddingProvider, dimensions: numbe
       if (embedding && embedding.length !== dimensions) {
         if (!warned) {
           warned = true;
-          console.warn(
+          console.info(
             `openbrain: the embedding model returned ${embedding.length} dimensions but ` +
               `config.embeddings.dimensions is ${dimensions}; ignoring these embeddings. ` +
               `Update embeddings.dimensions to match the model, then run "openbrain index rebuild".`
@@ -155,10 +155,9 @@ class TransformersEmbeddingProvider implements EmbeddingProvider {
   private async loadExtractor() {
     const transformers = await import("@huggingface/transformers");
     transformers.env.cacheDir = modelCacheDir(this.options);
-    return (await transformers.pipeline(
-      "feature-extraction",
-      this.config.embeddings.model
-    )) as unknown as FeatureExtractor;
+    return (await transformers.pipeline("feature-extraction", this.config.embeddings.model, {
+      dtype: "auto"
+    })) as unknown as FeatureExtractor;
   }
 }
 

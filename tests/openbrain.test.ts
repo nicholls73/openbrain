@@ -785,7 +785,7 @@ describe("OpenBrain local storage", () => {
     expect(results[0]?.excerpt.startsWith("12345678 alpha")).toBe(true);
   });
 
-  test("warns when query embedding fails so FTS-only degradation is visible", async () => {
+  test("reports when query embedding fails so FTS-only degradation is visible", async () => {
     const home = await tempHome();
     await addMemory({ type: "workflow", text: "Deploy with the release checklist." }, options(home));
     const failingEmbedder: EmbeddingProvider = {
@@ -794,13 +794,19 @@ describe("OpenBrain local storage", () => {
       }
     };
 
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const results = await searchMemories("release checklist", options(home, failingEmbedder));
       expect(results).toHaveLength(1);
-      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("FTS-only");
+      expect(info.mock.calls.map((call) => String(call[0])).join("\n")).toContain("FTS-only");
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
     } finally {
+      info.mockRestore();
       warn.mockRestore();
+      error.mockRestore();
     }
   });
 
@@ -998,16 +1004,16 @@ describe("OpenBrain local storage", () => {
     expect(await listPendingReviews(options(home))).toHaveLength(0);
   });
 
-  test("does not warn about FTS-only results when embeddings are disabled", async () => {
+  test("does not report FTS-only results when embeddings are disabled", async () => {
     const home = await tempHome();
     await addMemory({ type: "workflow", text: "Deploy with the release checklist." }, options(home));
 
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       await searchMemories("release checklist", options(home));
-      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).not.toContain("FTS-only");
+      expect(info.mock.calls.map((call) => String(call[0])).join("\n")).not.toContain("FTS-only");
     } finally {
-      warn.mockRestore();
+      info.mockRestore();
     }
   });
 
@@ -1226,15 +1232,18 @@ describe("OpenBrain local storage", () => {
         return [1, 0];
       }
     };
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const results = await searchMemories("pnpm TypeScript", options(home, narrowEmbedder));
 
       expect(results[0]?.id).toBe(added.id);
       expect(results[0]?.match).toBe("fts");
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(String(warn.mock.calls[0]?.[0])).toContain("index rebuild");
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(String(info.mock.calls[0]?.[0])).toContain("index rebuild");
+      expect(warn).not.toHaveBeenCalled();
     } finally {
+      info.mockRestore();
       warn.mockRestore();
     }
   });
