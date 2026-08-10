@@ -164,13 +164,16 @@ describe("enforceDimensions", () => {
     const provider = enforceDimensions(inner, 3);
 
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       expect(await provider.embed("first")).toBeNull();
       expect(await provider.embed("second")).toBeNull();
       expect(info).toHaveBeenCalledTimes(1);
       expect(String(info.mock.calls[0]?.[0])).toContain("embeddings.dimensions");
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       info.mockRestore();
+      warn.mockRestore();
     }
   });
 });
