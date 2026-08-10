@@ -47,7 +47,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
     if (!queryEmbedding && !provider.disabled) {
       // Degrading to FTS-only used to be silent, which made semantic search
       // look enabled while it never actually ran.
-      console.warn(
+      console.info(
         "openbrain: embedding the query failed or timed out; results are FTS-only. " +
           "A first search may still be downloading the local embedding model."
       );
@@ -78,7 +78,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
         .map((result) => result.row);
 
       if (dimensionMismatches > 0) {
-        console.warn(
+        console.info(
           `openbrain: skipped ${dimensionMismatches} memor${dimensionMismatches === 1 ? "y" : "ies"} ` +
             `with embeddings that no longer match the current model (${queryEmbedding.length} dims). ` +
             `Run "openbrain index rebuild" to re-embed them.`

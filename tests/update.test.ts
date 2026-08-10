@@ -1,8 +1,14 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
-import { applyUpdate, getUpdateNotice, isNewerVersion, planUpdate } from "../src/update.js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import {
+  applyUpdate,
+  getUpdateNotice,
+  isNewerVersion,
+  maybePrintUpdateNotice,
+  planUpdate
+} from "../src/update.js";
 
 const tempRoots: string[] = [];
 
@@ -42,6 +48,25 @@ describe("update notice", () => {
 
     expect(notice).toContain("openbrain: update available 0.1.0 -> 0.1.1");
     expect(notice).toContain("openbrain update");
+  });
+
+  test("prints update notices without writing to stderr", async () => {
+    const home = await tempHome();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await maybePrintUpdateNotice({
+        home,
+        currentVersion: "0.1.0",
+        fetch: async () => new Response(JSON.stringify({ version: "0.1.1" }), { status: 200 })
+      });
+
+      expect(info).toHaveBeenCalledWith(expect.stringContaining("update available"));
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      info.mockRestore();
+      error.mockRestore();
+    }
   });
 
   test("checks at most once per day", async () => {

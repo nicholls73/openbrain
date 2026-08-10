@@ -1,8 +1,39 @@
 import { describe, expect, test, vi } from "vitest";
-import { embedWithTimeout, enforceDimensions, serialiseEmbeds } from "../src/embeddings.js";
+import { DEFAULT_CONFIG } from "../src/config.js";
+import {
+  createEmbeddingProvider,
+  embedWithTimeout,
+  enforceDimensions,
+  serialiseEmbeds
+} from "../src/embeddings.js";
 import type { EmbeddingProvider } from "../src/types.js";
 
+const transformers = vi.hoisted(() => ({ env: {}, pipeline: vi.fn() }));
+vi.mock("@huggingface/transformers", () => transformers);
+
 describe("embedWithTimeout", () => {
+  test("loads Transformers without writing warnings to stderr", async () => {
+    vi.stubEnv("OPENBRAIN_REAL_EMBEDDINGS", "1");
+    transformers.pipeline.mockResolvedValueOnce(async () => ({ data: new Float32Array(384) }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const provider = createEmbeddingProvider(DEFAULT_CONFIG);
+    vi.unstubAllEnvs();
+    try {
+      expect(await embedWithTimeout(provider, "query", 1000)).toHaveLength(384);
+      expect(transformers.pipeline).toHaveBeenCalledWith(
+        "feature-extraction",
+        DEFAULT_CONFIG.embeddings.model,
+        { dtype: "auto" }
+      );
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   test("returns the embedding when it resolves before the timeout", async () => {
     const provider: EmbeddingProvider = {
       async embed() {
@@ -124,7 +155,7 @@ describe("enforceDimensions", () => {
     expect(await enforceDimensions(inner, 3).embed("query")).toEqual([1, 2, 3]);
   });
 
-  test("rejects mismatched embeddings and warns once", async () => {
+  test("rejects mismatched embeddings and reports once", async () => {
     const inner: EmbeddingProvider = {
       async embed() {
         return [1, 2, 3, 4];
@@ -132,14 +163,14 @@ describe("enforceDimensions", () => {
     };
     const provider = enforceDimensions(inner, 3);
 
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       expect(await provider.embed("first")).toBeNull();
       expect(await provider.embed("second")).toBeNull();
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(String(warn.mock.calls[0]?.[0])).toContain("embeddings.dimensions");
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(String(info.mock.calls[0]?.[0])).toContain("embeddings.dimensions");
     } finally {
-      warn.mockRestore();
+      info.mockRestore();
     }
   });
 });

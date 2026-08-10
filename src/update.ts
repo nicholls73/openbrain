@@ -41,7 +41,7 @@ interface ApplyUpdateOptions {
 export async function maybePrintUpdateNotice(options: UpdateOptions = {}) {
   const notice = await getUpdateNotice(options);
   if (notice) {
-    console.error(notice);
+    console.info(notice);
   }
 }
 
