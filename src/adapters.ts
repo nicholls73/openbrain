@@ -150,7 +150,7 @@ export async function runSessionStartHook(options: OpenBrainOptions = {}): Promi
   const lines = [
     `OpenBrain memory is active (brain: ${status.brain}).`,
     `Before starting a task, run: openbrain memory search "<short description of the task>" and use only relevant results.`,
-    `After meaningful work, record durable memories with: openbrain memory add --type <preference|workflow|workspace|decision|episode> --text "...".`,
+    `After meaningful work, record useful evidence with: openbrain memory add --type episode --confidence low --text "...". Use a durable type only for an already-established conclusion.`,
     `Daily dreaming has already been handled for this session.`
   ];
 
@@ -258,14 +258,16 @@ openbrain memory search "<short description of the user's current task>"
 
 Use only relevant returned memories.
 
-After a meaningful task, record concise durable memories:
+After meaningful work, record useful observations. When an observation is
+evidence rather than an already-established durable conclusion, save it as a
+low-confidence episode so recurring evidence can accumulate:
 
 \`\`\`bash
+openbrain memory add --type episode --confidence low --text "..."
 openbrain memory add --type workflow --text "..."
 openbrain memory add --type workspace --text "..."
 openbrain memory add --type preference --text "..."
 openbrain memory add --type decision --text "..."
-openbrain memory add --type episode --text "..."
 openbrain memory add --type episode --promote-as workflow --text "..."
 openbrain memory promote <episode-id> --type workflow --text "..."
 \`\`\`
@@ -303,8 +305,9 @@ Use metadata only when it materially helps retrieval or review:
 - \`--promote-as <durable-type>\`: marks an episode for later review.
 
 Dream writes promotion candidate review files for episodes marked with
-\`--promote-as\`. Review source text before running \`openbrain memory promote\`.
-Do not promote automatically.
+\`--promote-as\` and for recurring semantically similar episodes. Review all
+source text before running \`openbrain memory promote\`. Do not promote
+automatically.
 
 Dream also writes a consolidation review of likely duplicate durable memories
 with ready-to-run merge commands. Review the memories before merging; never

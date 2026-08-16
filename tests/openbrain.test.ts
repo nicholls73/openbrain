@@ -940,6 +940,112 @@ describe("OpenBrain local storage", () => {
     expect(await listPendingReviews(options(home))).toHaveLength(0);
   });
 
+  test("dream discovers recurring unmarked episodes as promotion candidates", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed(text) {
+        return text.includes("batman") ? [1, 0, 0] : [0, 1, 0];
+      }
+    };
+    const episodes = await Promise.all(
+      ["alpha", "beta", "gamma"].map((repository) =>
+        addMemory(
+          {
+            type: "episode",
+            text: `Repository ${repository} used batman as its root commit message.`,
+            metadata: { confidence: "low" }
+          },
+          options(home, embedder)
+        )
+      )
+    );
+
+    const result = await dreamRun(options(home, embedder));
+    if (result.status !== "ran") {
+      throw new Error("expected dream to run");
+    }
+    expect(result.promotionCandidatesPath).toBeDefined();
+    const report = await readFile(result.promotionCandidatesPath!, "utf8");
+    expect(report).toContain("Recurring episode pattern");
+    expect(report).toContain("- evidenceCount: 3");
+    expect(report).toContain("- suggestedType: preference");
+    expect(report).toContain("- draft:");
+    for (const episode of episodes) {
+      expect(report).toContain(episode.id);
+    }
+  });
+
+  test("dream resists one-off and transient recurring episode false positives", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed(text) {
+        return text.includes("temporary branch") ? [0, 1, 0] : [1, 0, 0];
+      }
+    };
+    for (const repository of ["alpha", "beta"]) {
+      await addMemory(
+        {
+          type: "episode",
+          text: `Repository ${repository} used batman as its root commit message.`,
+          metadata: { confidence: "low" }
+        },
+        options(home, embedder)
+      );
+    }
+    for (const branch of ["feature/a", "feature/b", "feature/c"]) {
+      await addMemory(
+        {
+          type: "episode",
+          text: `The temporary branch ${branch} was touched during this task.`,
+          metadata: { confidence: "low" }
+        },
+        options(home, embedder)
+      );
+    }
+
+    const result = await dreamRun(options(home, embedder));
+    if (result.status !== "ran") {
+      throw new Error("expected dream to run");
+    }
+    expect(result.promotionCandidatesPath).toBeUndefined();
+  });
+
+  test("dream preserves explicit candidates alongside recurring discoveries", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed(text) {
+        return text.includes("batman") ? [1, 0, 0] : [0, 1, 0];
+      }
+    };
+    const explicit = await addMemory(
+      {
+        type: "episode",
+        text: "The team decided to retain the release approval gate.",
+        metadata: { promoteAs: "decision" }
+      },
+      options(home, embedder)
+    );
+    for (const repository of ["alpha", "beta", "gamma"]) {
+      await addMemory(
+        {
+          type: "episode",
+          text: `Repository ${repository} used batman as its root commit message.`,
+          metadata: { confidence: "low" }
+        },
+        options(home, embedder)
+      );
+    }
+
+    const result = await dreamRun(options(home, embedder));
+    if (result.status !== "ran") {
+      throw new Error("expected dream to run");
+    }
+    const report = await readFile(result.promotionCandidatesPath!, "utf8");
+    expect(report).toContain(explicit.id);
+    expect(report).toContain("- suggestedType: decision");
+    expect(report).toContain("Recurring episode pattern");
+  });
+
   test("session start surfaces pending reviews until they are marked done", async () => {
     const home = await tempHome();
     await addMemory(
@@ -1562,6 +1668,8 @@ describe("Codex adapter sync", () => {
     );
     expect(agentFile).toContain('openbrain brain add-path <brain> "<current workspace path>"');
     expect(agentFile).toContain('openbrain memory add --type workspace --text "..."');
+    expect(agentFile).toContain('openbrain memory add --type episode --confidence low --text "..."');
+    expect(agentFile).toContain("evidence rather than an already-established durable conclusion");
     expect(agentFile).toContain("Record durable memories only when the guidance is likely to stay useful");
     expect(agentFile).toContain("Do not store branch names, PR");
     expect(agentFile).toContain("If short-lived handoff context is useful, store it as");

@@ -1,7 +1,6 @@
 import type { Dirent } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { loadConfig } from "./config.js";
 import type { IndexedMemoryRow } from "./db.js";
 import {
   allRowsWithEmbeddings,
@@ -31,7 +30,6 @@ import type {
   DreamResult,
   DreamRunResult,
   DurableMemoryType,
-  MemoryRecord,
   OpenBrainOptions,
   PendingReview
 } from "./types.js";
@@ -291,10 +289,9 @@ async function acquireDreamLock(lockPath: string, now: Date): Promise<boolean> {
 
 async function performDream(options: OpenBrainOptions, brain: string, now: Date): Promise<DreamRunResult> {
   const date = localDateString(now);
-  const config = await loadConfig(options);
   const pruned = await pruneEpisodes(options);
   await rebuildIndex(options);
-  const promotionCandidatesPath = await writePromotionCandidates(date, now, options, config.retentionDays);
+  const promotionCandidatesPath = await writePromotionCandidates(date, now, options);
   const consolidationReportPath = await writeConsolidationReport(date, now, options);
   const logPath = await uniqueDreamFilePath("dream", date, now, options);
   const result: DreamRunResult = {
@@ -381,39 +378,164 @@ function renderDreamLog(result: DreamRunResult, now: Date) {
   );
 }
 
-async function writePromotionCandidates(
-  date: string,
-  now: Date,
-  options: OpenBrainOptions,
-  retentionDays: number
-) {
-  const records = await Promise.all(
-    (await markdownFiles(episodesDir(options))).map((filePath) => parseMemoryFile(filePath, retentionDays))
-  );
-  const candidates = records.filter((record) => record.type === "episode" && record.metadata.promoteAs);
+async function writePromotionCandidates(date: string, now: Date, options: OpenBrainOptions) {
+  const db = await openDatabase(options);
+  let explicitCandidates: IndexedMemoryRow[];
+  let recurringGroups: RecurringEpisodeGroup[];
+  try {
+    const rows = listMemoryRows(db);
+    explicitCandidates = rows.filter(
+      (row) => row.type === "episode" && row.promote_as && episodeActive(row, now)
+    );
+    recurringGroups = findRecurringEpisodeGroups(db, now);
+  } finally {
+    db.close();
+  }
   // Review files exist to be actioned by agents; a file with nothing to do
   // would just be noise in the pending-review queue.
-  if (!candidates.length) {
+  if (!explicitCandidates.length && !recurringGroups.length) {
     return undefined;
   }
   const target = await uniqueDreamFilePath("promotion-candidates", date, now, options);
-  await writeFile(target, renderPromotionCandidates(candidates), "utf8");
+  await writeFile(target, renderPromotionCandidates(explicitCandidates, recurringGroups), "utf8");
   return target;
 }
 
-function renderPromotionCandidates(candidates: MemoryRecord[]) {
+const RECURRING_EPISODE_MIN_COUNT = 3;
+const RECURRING_EPISODE_SIMILARITY = DUPLICATE_SIMILARITY;
+const NON_DURABLE_EPISODE_PATTERN =
+  /\b(?:branch(?: name)?|pull request|pr #\d+|commit (?:id|hash|sha)|files? touched|fixture(?: value)?|copied (?:constant|value)|one-off|implementation detail|stale (?:local )?state|temporary|secret|credential|password|api key|access token)\b/i;
+
+interface RecurringEpisodeGroup {
+  similarity: number;
+  rows: IndexedMemoryRow[];
+  suggestedType: DurableMemoryType;
+  draft: string;
+}
+
+export function findRecurringEpisodeGroups(
+  db: Awaited<ReturnType<typeof openDatabase>>,
+  now: Date
+): RecurringEpisodeGroup[] {
+  const rows = allRowsWithEmbeddings(db)
+    .filter(
+      (row) =>
+        row.type === "episode" &&
+        row.sensitivity !== "private" &&
+        !row.promote_as &&
+        episodeActive(row, now) &&
+        !NON_DURABLE_EPISODE_PATTERN.test(row.body)
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const embeddings = new Map(rows.map((row) => [row.id, decodeEmbedding(row.embedding)] as const));
+  const groups: IndexedMemoryRow[][] = [];
+
+  // ponytail: O(n^2) complete-link clustering is deterministic and resists
+  // similarity chaining; replace it only if active episode counts reach thousands.
+  for (const row of rows) {
+    const embedding = embeddings.get(row.id);
+    if (!embedding) {
+      continue;
+    }
+    const group = groups.find((candidate) =>
+      candidate.every((member) => {
+        const other = embeddings.get(member.id);
+        return (
+          other !== null &&
+          other !== undefined &&
+          other.length === embedding.length &&
+          cosine(embedding, other) >= RECURRING_EPISODE_SIMILARITY
+        );
+      })
+    );
+    if (group) {
+      group.push(row);
+    } else {
+      groups.push([row]);
+    }
+  }
+
+  return groups
+    .filter((group) => group.length >= RECURRING_EPISODE_MIN_COUNT)
+    .map((group) => ({
+      similarity: minimumPairSimilarity(group, embeddings),
+      rows: group,
+      suggestedType: suggestPromotionType(group),
+      draft: centralEpisode(group, embeddings).body
+    }));
+}
+
+function episodeActive(row: IndexedMemoryRow, now: Date) {
+  return !(row.expires_at && new Date(row.expires_at).getTime() <= now.getTime());
+}
+
+function minimumPairSimilarity(rows: IndexedMemoryRow[], embeddings: Map<string, ArrayLike<number> | null>) {
+  let minimum = 1;
+  for (let left = 0; left < rows.length; left++) {
+    for (let right = left + 1; right < rows.length; right++) {
+      minimum = Math.min(minimum, cosine(embeddings.get(rows[left]!.id)!, embeddings.get(rows[right]!.id)!));
+    }
+  }
+  return minimum;
+}
+
+function centralEpisode(rows: IndexedMemoryRow[], embeddings: Map<string, ArrayLike<number> | null>) {
+  return rows.reduce((best, row) =>
+    averageSimilarity(row, rows, embeddings) > averageSimilarity(best, rows, embeddings) ? row : best
+  );
+}
+
+function averageSimilarity(
+  row: IndexedMemoryRow,
+  rows: IndexedMemoryRow[],
+  embeddings: Map<string, ArrayLike<number> | null>
+) {
+  const embedding = embeddings.get(row.id)!;
+  return (
+    rows.reduce(
+      (total, other) => total + (other.id === row.id ? 0 : cosine(embedding, embeddings.get(other.id)!)),
+      0
+    ) /
+    (rows.length - 1)
+  );
+}
+
+function suggestPromotionType(rows: IndexedMemoryRow[]): DurableMemoryType {
+  const text = rows.map((row) => row.body).join("\n");
+  if (/\b(?:decided|decision|chose|adopted|agreed)\b/i.test(text)) {
+    return "decision";
+  }
+  if (/\b(?:prefer(?:s|red)?|favou?rite|likes?|commit message|naming|style)\b/i.test(text)) {
+    return "preference";
+  }
+  if (
+    /\b(?:before|after|when|must|should|checklist|process|workflow|run|deploy|release|review)\b/i.test(text)
+  ) {
+    return "workflow";
+  }
+  if (/\b(?:workspace|repository|repo|project|toolchain|configuration|config|dependency)\b/i.test(text)) {
+    return "workspace";
+  }
+  return "preference";
+}
+
+function renderPromotionCandidates(
+  explicitCandidates: IndexedMemoryRow[],
+  recurringGroups: RecurringEpisodeGroup[]
+) {
   const lines = [
     "# Promotion candidates",
     "",
-    "These episodes were marked with `promoteAs`. Review the source text before creating durable memory.",
+    "Review all source evidence before creating durable memory. Dream proposes; it never promotes or rewrites memories.",
     ""
   ];
 
-  for (const candidate of candidates) {
-    const type = candidate.metadata.promoteAs as DurableMemoryType;
+  for (const candidate of explicitCandidates) {
+    const type = candidate.promote_as as DurableMemoryType;
     lines.push(`## ${candidate.id}`);
     lines.push("");
     lines.push(`- title: ${candidate.title}`);
+    lines.push("- source: explicit `promoteAs`");
     lines.push(`- suggestedType: ${type}`);
     lines.push(`- sourceExcerpt: ${quoteForMarkdown(excerpt(candidate.body, ""))}`);
     lines.push("");
@@ -422,6 +544,26 @@ function renderPromotionCandidates(candidates: MemoryRecord[]) {
     lines.push("```");
     lines.push("");
   }
+
+  recurringGroups.forEach((group, index) => {
+    lines.push(`## Recurring episode pattern ${index + 1}`);
+    lines.push("");
+    lines.push(`- evidenceCount: ${group.rows.length}`);
+    lines.push(`- minimumSimilarity: ${group.similarity.toFixed(2)}`);
+    lines.push(`- suggestedType: ${group.suggestedType}`);
+    lines.push(`- draft: ${quoteForMarkdown(group.draft)}`);
+    lines.push("- evidence:");
+    for (const row of group.rows) {
+      lines.push(`  - [${row.id}] ${quoteForMarkdown(excerpt(row.body, ""))}`);
+    }
+    lines.push("");
+    lines.push("```bash");
+    lines.push(
+      `openbrain memory promote ${group.rows[0]!.id} --type ${group.suggestedType} --text "<reviewed durable memory>"`
+    );
+    lines.push("```");
+    lines.push("");
+  });
 
   return lines.join("\n") + "\n";
 }
