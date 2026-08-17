@@ -385,7 +385,8 @@ async function writePromotionCandidates(date: string, now: Date, options: OpenBr
   try {
     const rows = listMemoryRows(db);
     explicitCandidates = rows.filter(
-      (row) => row.type === "episode" && row.promote_as && episodeActive(row, now)
+      (row) =>
+        row.type === "episode" && row.sensitivity !== "private" && row.promote_as && episodeActive(row, now)
     );
     recurringGroups = findRecurringEpisodeGroups(db, now);
   } finally {
@@ -428,41 +429,66 @@ export function findRecurringEpisodeGroups(
     )
     .sort((left, right) => left.id.localeCompare(right.id));
   const embeddings = new Map(rows.map((row) => [row.id, decodeEmbedding(row.embedding)] as const));
+  const neighbors = rows.map(() => new Set<number>());
   const groups: IndexedMemoryRow[][] = [];
 
-  // ponytail: O(n^2) complete-link clustering is deterministic and resists
-  // similarity chaining; replace it only if active episode counts reach thousands.
-  for (const row of rows) {
-    const embedding = embeddings.get(row.id);
-    if (!embedding) {
+  for (let left = 0; left < rows.length; left++) {
+    const leftEmbedding = embeddings.get(rows[left]!.id);
+    if (!leftEmbedding) {
       continue;
     }
-    const group = groups.find((candidate) =>
-      candidate.every((member) => {
-        const other = embeddings.get(member.id);
-        return (
-          other !== null &&
-          other !== undefined &&
-          other.length === embedding.length &&
-          cosine(embedding, other) >= RECURRING_EPISODE_SIMILARITY
-        );
-      })
-    );
-    if (group) {
-      group.push(row);
-    } else {
-      groups.push([row]);
+    for (let right = left + 1; right < rows.length; right++) {
+      const rightEmbedding = embeddings.get(rows[right]!.id);
+      if (
+        rightEmbedding &&
+        leftEmbedding.length === rightEmbedding.length &&
+        cosine(leftEmbedding, rightEmbedding) >= RECURRING_EPISODE_SIMILARITY
+      ) {
+        neighbors[left]!.add(right);
+        neighbors[right]!.add(left);
+      }
     }
   }
 
-  return groups
-    .filter((group) => group.length >= RECURRING_EPISODE_MIN_COUNT)
-    .map((group) => ({
-      similarity: minimumPairSimilarity(group, embeddings),
-      rows: group,
-      suggestedType: suggestPromotionType(group),
-      draft: centralEpisode(group, embeddings).body
-    }));
+  const intersect = (left: Set<number>, right: Set<number>) =>
+    new Set([...left].filter((value) => right.has(value)));
+
+  // ponytail: Bron-Kerbosch preserves overlapping complete-link groups. Its
+  // worst case is exponential; retention and the 0.90 threshold keep this sparse.
+  const findCliques = (clique: number[], candidates: Set<number>, excluded: Set<number>) => {
+    if (!candidates.size && !excluded.size) {
+      if (clique.length >= RECURRING_EPISODE_MIN_COUNT) {
+        groups.push(clique.map((index) => rows[index]!));
+      }
+      return;
+    }
+
+    const pivot = [...candidates, ...excluded].reduce<number | undefined>((best, candidate) => {
+      if (best === undefined) {
+        return candidate;
+      }
+      return intersect(neighbors[candidate]!, candidates).size > intersect(neighbors[best]!, candidates).size
+        ? candidate
+        : best;
+    }, undefined);
+    const explore = [...candidates].filter(
+      (candidate) => pivot === undefined || !neighbors[pivot]!.has(candidate)
+    );
+    for (const candidate of explore) {
+      const adjacent = neighbors[candidate]!;
+      findCliques([...clique, candidate], intersect(candidates, adjacent), intersect(excluded, adjacent));
+      candidates.delete(candidate);
+      excluded.add(candidate);
+    }
+  };
+  findCliques([], new Set(rows.map((_, index) => index)), new Set());
+
+  return groups.map((group) => ({
+    similarity: minimumPairSimilarity(group, embeddings),
+    rows: group,
+    suggestedType: suggestPromotionType(group),
+    draft: centralEpisode(group, embeddings).body
+  }));
 }
 
 function episodeActive(row: IndexedMemoryRow, now: Date) {
