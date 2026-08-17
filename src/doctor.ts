@@ -1,13 +1,19 @@
 import { constants } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { claudeSettingsShapeProblem } from "./adapters.js";
+import { claudeSettingsShapeProblem, codexHooksShapeProblem } from "./adapters.js";
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
-import { CLAUDE_HOOK_COMMAND, getBrainStatus, memoryFiles, OPENBRAIN_BEGIN } from "./openbrain.js";
-import { claudeHome, claudeSettingsPath, codexHome, configPath, dreamsDir } from "./paths.js";
+import {
+  CLAUDE_HOOK_COMMAND,
+  CODEX_HOOK_COMMAND,
+  getBrainStatus,
+  memoryFiles,
+  OPENBRAIN_BEGIN
+} from "./openbrain.js";
+import { claudeHome, claudeSettingsPath, codexHome, codexHooksPath, configPath, dreamsDir } from "./paths.js";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 import { fetchLatestVersion, isNewerVersion, readCurrentVersion, UPDATE_COMMAND } from "./update.js";
 
@@ -66,12 +72,8 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
 
   if (config.agents.codex.enabled) {
     checks.push(await adapterCheck("codex adapter", path.join(codexHome(options), "AGENTS.md"), "codex"));
-    checks.push({
-      status: "warn",
-      name: "codex enforcement",
-      detail:
-        "advisory-only: Codex relies solely on the AGENTS.md block; nothing enforces that agents follow it"
-    });
+    const hook = await codexHookCheck(options);
+    checks.push(hook, codexEnforcementCheck(hook));
   }
   if (config.agents.claude.enabled) {
     checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
@@ -367,7 +369,7 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
         hint: "Fix or remove the malformed value, then rerun: openbrain agents sync claude"
       };
     }
-    if (raw.includes(CLAUDE_HOOK_COMMAND)) {
+    if (hasCommandHook(parsed, "SessionStart", CLAUDE_HOOK_COMMAND)) {
       return { status: "ok", name: "claude hook", detail: `SessionStart hook installed in ${file}` };
     }
   } catch {
@@ -378,6 +380,80 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
     name: "claude hook",
     detail: `SessionStart hook missing from ${file}`,
     hint: "openbrain agents sync claude"
+  };
+}
+
+async function codexHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
+  const file = codexHooksPath(options);
+  try {
+    const raw = await readFile(file, "utf8");
+    let parsed: unknown = {};
+    try {
+      parsed = raw.trim() ? JSON.parse(raw) : {};
+    } catch {
+      return {
+        status: "warn",
+        name: "codex hook",
+        detail: `${file} is not valid JSON; the UserPromptSubmit hook does not run`,
+        hint: "Fix the JSON, then rerun: openbrain agents sync codex"
+      };
+    }
+    const problem = codexHooksShapeProblem(parsed);
+    if (problem) {
+      return {
+        status: "warn",
+        name: "codex hook",
+        detail: `${file} is malformed (${problem}); the UserPromptSubmit hook does not run`,
+        hint: "Fix or remove the malformed value, then rerun: openbrain agents sync codex"
+      };
+    }
+    if (hasCommandHook(parsed, "UserPromptSubmit", CODEX_HOOK_COMMAND)) {
+      return {
+        status: "ok",
+        name: "codex hook",
+        detail: `UserPromptSubmit hook installed in ${file}; review trust with /hooks in Codex`
+      };
+    }
+  } catch {
+    // Fall through to the warn below.
+  }
+  return {
+    status: "warn",
+    name: "codex hook",
+    detail: `UserPromptSubmit hook missing from ${file}`,
+    hint: "openbrain agents sync codex"
+  };
+}
+
+function hasCommandHook(value: unknown, event: string, command: string) {
+  if (!isRecord(value) || !isRecord(value.hooks) || !Array.isArray(value.hooks[event])) {
+    return false;
+  }
+  return value.hooks[event].some(
+    (group) =>
+      isRecord(group) &&
+      Array.isArray(group.hooks) &&
+      group.hooks.some((handler) => isRecord(handler) && handler.command === command)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function codexEnforcementCheck(hook: DoctorCheck): DoctorCheck {
+  if (hook.status === "ok") {
+    return {
+      status: "ok",
+      name: "codex enforcement",
+      detail: "hook-backed: the UserPromptSubmit hook retrieves relevant memory before each prompt"
+    };
+  }
+  return {
+    status: "warn",
+    name: "codex enforcement",
+    detail: "advisory-only: without the UserPromptSubmit hook, agents rely on the AGENTS.md block alone",
+    hint: "openbrain agents sync codex"
   };
 }
 

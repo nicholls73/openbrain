@@ -77,6 +77,7 @@ describe("openbrain doctor", () => {
       detail: expect.stringContaining("384-dim")
     });
     expect(check(report, "codex adapter").status).toBe("ok");
+    expect(check(report, "codex hook").status).toBe("ok");
     expect(check(report, "claude adapter").status).toBe("ok");
     expect(check(report, "claude hook").status).toBe("ok");
     expect(check(report, "review backlog")).toMatchObject({ status: "ok", detail: "no pending reviews" });
@@ -126,13 +127,17 @@ describe("openbrain doctor", () => {
     expect(report.checks.some((entry) => entry.name === "database")).toBe(false);
   });
 
-  test("warns when adapters and the Claude hook are not synced", async () => {
+  test("warns when adapters and hooks are not synced", async () => {
     const home = await tempHome();
     await initOpenBrain(options(home));
 
     const report = await runDoctor({ ...options(home), fetch: offlineFetch });
 
     expect(check(report, "codex adapter")).toMatchObject({
+      status: "warn",
+      hint: "openbrain agents sync codex"
+    });
+    expect(check(report, "codex hook")).toMatchObject({
       status: "warn",
       hint: "openbrain agents sync codex"
     });
@@ -273,15 +278,15 @@ describe("openbrain doctor", () => {
     expect(check(report, "duplicates").detail).toContain("1 group of near-duplicate durable memories");
   });
 
-  test("reports codex as advisory-only and a hooked claude as hook-backed", async () => {
+  test("reports synced agent integrations as hook-backed", async () => {
     const home = await tempHome();
     await setupOpenBrain({ brainScope: "default", syncCodex: true, syncClaude: true }, options(home));
 
     const report = await runDoctor({ ...options(home), fetch: offlineFetch });
 
     expect(check(report, "codex enforcement")).toMatchObject({
-      status: "warn",
-      detail: expect.stringContaining("advisory-only")
+      status: "ok",
+      detail: expect.stringContaining("hook-backed")
     });
     expect(check(report, "claude enforcement")).toMatchObject({
       status: "ok",

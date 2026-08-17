@@ -27,6 +27,7 @@ import {
 import {
   addBrainPath,
   addMemory,
+  CODEX_HOOK_COMMAND,
   deleteMemory,
   dreamMaybe,
   dreamRun,
@@ -41,6 +42,7 @@ import {
   pruneEpisodes,
   rebuildIndex,
   runSessionStartHook,
+  runUserPromptSubmitHook,
   searchMemories,
   setupOpenBrain,
   showMemory,
@@ -1782,6 +1784,142 @@ describe("Codex adapter sync", () => {
 
     expect(second).toContain("Do not remove this.");
     expect(second.match(/BEGIN OPENBRAIN/g)).toHaveLength(1);
+  });
+
+  test("preserves existing hooks and installs one prompt retrieval hook", async () => {
+    const home = await tempHome();
+    const codexHome = path.join(home, ".codex");
+    await initOpenBrain(options(home));
+    await mkdir(codexHome, { recursive: true });
+    await writeFile(
+      path.join(codexHome, "hooks.json"),
+      JSON.stringify({
+        custom: true,
+        hooks: {
+          Stop: [{ hooks: [{ type: "command", command: "keep-stop" }] }],
+          UserPromptSubmit: [
+            {
+              hooks: [
+                { type: "command", command: "keep-prompt" },
+                { type: "command", command: CODEX_HOOK_COMMAND }
+              ]
+            }
+          ]
+        }
+      }),
+      "utf8"
+    );
+
+    await syncCodexAgent({ ...options(home), codexHome });
+    await syncCodexAgent({ ...options(home), codexHome });
+
+    const config = JSON.parse(await readFile(path.join(codexHome, "hooks.json"), "utf8")) as {
+      custom: boolean;
+      hooks: Record<string, Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>>;
+    };
+    const handlers = config.hooks.UserPromptSubmit.flatMap((group) => group.hooks);
+    expect(config.custom).toBe(true);
+    expect(config.hooks.Stop[0]?.hooks[0]).toMatchObject({ command: "keep-stop" });
+    expect(handlers).toContainEqual(expect.objectContaining({ command: "keep-prompt" }));
+    expect(handlers.filter((handler) => handler.command === CODEX_HOOK_COMMAND)).toEqual([
+      expect.objectContaining({
+        type: "command",
+        command: CODEX_HOOK_COMMAND,
+        additionalContextLimit: 1000
+      })
+    ]);
+    expect(config.hooks.UserPromptSubmit.at(-1)).not.toHaveProperty("matcher");
+  });
+
+  test("injects only relevant high-confidence durable memories", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed(text) {
+        return text.includes("release checklist") ? [1, 0] : [0, 1];
+      }
+    };
+    await addMemory(
+      {
+        type: "workflow",
+        text: "Run the release checklist before deploying.",
+        metadata: { confidence: "high" }
+      },
+      options(home, embedder)
+    );
+    await addMemory(
+      {
+        type: "workflow",
+        text: "Medium release checklist observation.",
+        metadata: { confidence: "medium" }
+      },
+      options(home, embedder)
+    );
+    await addMemory(
+      {
+        type: "decision",
+        text: "Private release checklist detail.",
+        metadata: { confidence: "high", sensitivity: "private" }
+      },
+      options(home, embedder)
+    );
+    await addMemory(
+      {
+        type: "episode",
+        text: "Episode release checklist evidence.",
+        metadata: { confidence: "high" }
+      },
+      options(home, embedder)
+    );
+
+    const result = await runUserPromptSubmitHook(
+      JSON.stringify({
+        hook_event_name: "UserPromptSubmit",
+        cwd: path.join(home, "workspace"),
+        prompt: "Please use the release checklist"
+      }),
+      options(home, embedder)
+    );
+
+    expect(result).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext: expect.stringContaining("Run the release checklist before deploying.")
+      }
+    });
+    const context = result?.hookSpecificOutput.additionalContext ?? "";
+    expect(context).not.toContain("Medium release checklist observation");
+    expect(context).not.toContain("Private release checklist detail");
+    expect(context).not.toContain("Episode release checklist evidence");
+    expect(context).not.toContain(home);
+  });
+
+  test("prompt retrieval fails open for malformed input and no match", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed(text) {
+        return text.includes("release checklist") ? [1, 0] : [0, 1];
+      }
+    };
+    await addMemory(
+      {
+        type: "workflow",
+        text: "Run the release checklist before deploying.",
+        metadata: { confidence: "high" }
+      },
+      options(home, embedder)
+    );
+
+    await expect(runUserPromptSubmitHook("not json", options(home, embedder))).resolves.toBeUndefined();
+    await expect(
+      runUserPromptSubmitHook(
+        JSON.stringify({
+          hook_event_name: "UserPromptSubmit",
+          cwd: path.join(home, "workspace"),
+          prompt: "Investigate an unrelated rendering bug"
+        }),
+        options(home, embedder)
+      )
+    ).resolves.toBeUndefined();
   });
 });
 

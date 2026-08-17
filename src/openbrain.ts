@@ -2,10 +2,12 @@
 // New code should import from the specific module instead.
 export {
   CLAUDE_HOOK_COMMAND,
+  CODEX_HOOK_COMMAND,
   detectClaudeAgent,
   detectCodexAgent,
   OPENBRAIN_BEGIN,
   runSessionStartHook,
+  runUserPromptSubmitHook,
   syncClaudeAgent,
   syncClaudeSettings,
   syncCodexAgent

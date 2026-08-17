@@ -3,7 +3,8 @@ import path from "node:path";
 import { loadConfig } from "./config.js";
 import { getBrainStatus, initOpenBrain } from "./internal.js";
 import { dreamMaybe, listPendingReviews } from "./maintenance.js";
-import { claudeHome, claudeSettingsPath, codexHome } from "./paths.js";
+import { claudeHome, claudeSettingsPath, codexHome, codexHooksPath } from "./paths.js";
+import { searchMemories } from "./search.js";
 import type { BrainStatus, OpenBrainOptions, PendingReview } from "./types.js";
 
 export const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
@@ -12,6 +13,7 @@ const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
 // Stable marker for the Claude Code SessionStart hook command. The adapter keys
 // idempotent settings.json merges off this substring, so it must not change.
 export const CLAUDE_HOOK_COMMAND = "openbrain hook session-start";
+export const CODEX_HOOK_COMMAND = "openbrain hook user-prompt-submit";
 
 // Detection is deliberately just "does the agent's config directory exist".
 // Both CLIs create their directory on first run, and it is the same location
@@ -33,7 +35,127 @@ async function directoryExists(dir: string) {
 }
 
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
-  return syncInstructionFile(codexHome(options), "AGENTS.md", options);
+  const file = await syncInstructionFile(codexHome(options), "AGENTS.md", options);
+  await syncCodexHooks(options);
+  return file;
+}
+
+// Merge a point-of-use retrieval hook into Codex's global hooks without
+// replacing the user's other hook events or handlers.
+export async function syncCodexHooks(options: OpenBrainOptions = {}) {
+  const file = codexHooksPath(options);
+  await mkdir(path.dirname(file), { recursive: true });
+
+  let settings: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(file, "utf8");
+    const parsed = raw.trim() ? JSON.parse(raw) : {};
+    const problem = codexHooksShapeProblem(parsed);
+    if (problem) {
+      throw new Error(
+        `OpenBrain cannot update ${file}: ${problem}. ` +
+          "Fix or remove the malformed value, then rerun openbrain agents sync codex."
+      );
+    }
+    settings = parsed as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const hooks = isRecord(settings.hooks) ? { ...settings.hooks } : {};
+  const promptSubmit = Array.isArray(hooks.UserPromptSubmit) ? hooks.UserPromptSubmit : [];
+  const cleaned = promptSubmit
+    .map((group) => {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) {
+        return group;
+      }
+      return {
+        ...group,
+        hooks: group.hooks.filter((entry) => !(isRecord(entry) && entry.command === CODEX_HOOK_COMMAND))
+      };
+    })
+    .filter((group) => !(isRecord(group) && Array.isArray(group.hooks) && group.hooks.length === 0));
+
+  cleaned.push({
+    hooks: [
+      {
+        type: "command",
+        command: CODEX_HOOK_COMMAND,
+        statusMessage: "Searching OpenBrain memory",
+        additionalContextLimit: 1000
+      }
+    ]
+  });
+  hooks.UserPromptSubmit = cleaned;
+  settings.hooks = hooks;
+  await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  return file;
+}
+
+export function codexHooksShapeProblem(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return "the top-level value is not an object";
+  }
+  if (value.hooks !== undefined && !isRecord(value.hooks)) {
+    return '"hooks" is not an object';
+  }
+  if (
+    isRecord(value.hooks) &&
+    value.hooks.UserPromptSubmit !== undefined &&
+    !Array.isArray(value.hooks.UserPromptSubmit)
+  ) {
+    return '"hooks.UserPromptSubmit" is not an array';
+  }
+  return null;
+}
+
+// Codex injects this JSON as developer context before each user prompt. The
+// hook is deliberately read-only and fail-open: malformed input, unavailable
+// brains, and retrieval failures all produce no output.
+export async function runUserPromptSubmitHook(
+  rawInput: string,
+  options: OpenBrainOptions = {}
+): Promise<
+  | {
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit"; additionalContext: string };
+    }
+  | undefined
+> {
+  try {
+    const input = JSON.parse(rawInput) as unknown;
+    if (
+      !isRecord(input) ||
+      input.hook_event_name !== "UserPromptSubmit" ||
+      typeof input.cwd !== "string" ||
+      typeof input.prompt !== "string" ||
+      !input.prompt.trim()
+    ) {
+      return undefined;
+    }
+    const results = await searchMemories(input.prompt, {
+      ...options,
+      cwd: input.cwd,
+      confidence: "high",
+      durableOnly: true,
+      includePrivate: false,
+      limit: 3,
+      quiet: true
+    });
+    if (!results.length) {
+      return undefined;
+    }
+    const additionalContext = [
+      "OpenBrain found relevant durable memories. Use only those applicable to this request:",
+      ...results.map((result) => `- [${result.type}] ${result.excerpt}`)
+    ].join("\n");
+    return {
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext }
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function syncClaudeAgent(options: OpenBrainOptions = {}, disableAutoMemory = false) {
