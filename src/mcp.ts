@@ -69,7 +69,7 @@ export async function createMcpServer() {
     "memory_add",
     {
       description:
-        "Record a memory after meaningful work. Use durable types (preference, workflow, workspace, decision) only for guidance that stays useful across future tasks; use episode for short-lived session notes, handoff state, or fast-changing facts. Never store secrets or one-off details like branch names or commit IDs. If the result reports duplicateOf, fold the fact into that existing memory with memory_update and delete this one.",
+        "Record a memory after meaningful work. Capture useful observations as low-confidence episodes when they are evidence rather than already-established conclusions; recurring episodes can be proposed for promotion during dreaming. Use durable types (preference, workflow, workspace, decision) only for guidance that stays useful across future tasks. Never store secrets or one-off details like branch names or commit IDs. If the result reports duplicateOf, fold the fact into that existing memory with memory_update and delete this one.",
       inputSchema: {
         type: memoryType,
         text: z.string(),

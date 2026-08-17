@@ -71,7 +71,7 @@ Only proceed if your user explicitly asked you to install OpenBrain.
 - Brain routing can keep different contexts separate by filesystem path.
 - Agents quietly trigger `openbrain dream maybe --quiet` so each brain can run maintenance once per day.
 - The current adapters sync a marked OpenBrain block into `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`. The Claude Code adapter also installs a `SessionStart` hook in `~/.claude/settings.json` that runs `openbrain hook session-start`, so Claude Code dreams and is reminded to search memory on every session instead of relying on the advisory block.
-- Episodes can be marked as promotion candidates; `dream` writes review files but does not create durable memory automatically.
+- Episodes can be marked as promotion candidates or discovered from recurring evidence; `dream` writes review files but does not create durable memory automatically.
 
 ## Fallback Installer
 
@@ -150,7 +150,7 @@ Good durable memories include:
 - Stable workspace or toolchain conventions.
 - Durable decisions and the reason behind them.
 
-Use `episode` for short-lived handoff context or fast-changing facts. Episodes are evidence; durable memories are conclusions. Avoid turning branch names, PR numbers, commit IDs, stale local state, exact files touched, copied fixture values, prior implementation shape, or one-off debugging details into durable memories.
+During normal work, record a useful observation as a low-confidence `episode` when it is evidence rather than an already-established durable conclusion. This lets recurring evidence accumulate for review during dreaming. Episodes also hold short-lived handoff context and fast-changing facts; durable memories are conclusions. Avoid turning branch names, PR numbers, commit IDs, stale local state, exact files touched, copied fixture values, prior implementation shape, or one-off debugging details into durable memories.
 
 Each memory can carry metadata in Markdown frontmatter:
 
@@ -296,7 +296,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, required checks, and pull-requ
 
 The first semantic search in a session is slower because the local embedding model has to load, and on first use the model downloads into the OpenBrain model cache. Model load has its own budget (`embeddings.loadTimeoutMs`, default 30s) separate from embedding itself (`embeddings.timeoutMs`, default 5s). When embeddings fail or time out, search falls back to SQLite FTS and prints a warning so the degradation is visible. Vector-only results below `retrieval.minVectorSimilarity` (default `0.25`) are omitted. If you change embedding models, re-embed existing memories with `openbrain index rebuild` (even when the models share dimensions, their vector spaces are not comparable) and adjust the threshold if needed.
 
-Dreaming is maintenance and review only. It prunes expired episodes, rebuilds the retrieval index from Markdown, and writes an audit log. When there is something to action, it also writes promotion candidate and consolidation review files. It does not invent, promote, merge, or delete memories automatically.
+Dreaming is maintenance and review only. It prunes expired episodes, rebuilds the retrieval index from Markdown, and writes an audit log. When there is something to action, it also writes promotion candidate and consolidation review files. Promotion candidates preserve explicit `promoteAs` suggestions and detect groups of at least three unexpired, non-private episodes whose existing embeddings are mutually at least `0.90` cosine-similar. Candidates containing common markers for transient or sensitive details are excluded, and the report includes the evidence, a suggested durable type, and a draft for review. Pairwise comparison is quadratic; maximal-clique discovery can be exponential in pathological overlap, but episode retention and the high threshold keep normal graphs small and sparse. Dreaming does not promote, merge, rewrite, or delete memories automatically.
 
 Review files are consumed by agents, not humans: the Claude Code session-start hook lists pending reviews, and agents check `openbrain review list`, action the suggestions (asking the user only for judgement calls), then run `openbrain review done <file>` to move the report into `dreams/actioned/`.
 
