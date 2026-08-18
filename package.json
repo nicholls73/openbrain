@@ -34,7 +34,7 @@
     ]
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.7.6",
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "12.10.0",
     "zod": "^4.4.3"
