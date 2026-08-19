@@ -44,6 +44,23 @@ function check(report: DoctorReport, name: string): DoctorCheck {
   return found;
 }
 
+const CODEX_HOOK_TRUSTED_HASH = "sha256:4c6b5dd6dd4804fe55a4d71493b8aa151c946b736d7deb818a6d38a291486671";
+
+async function writeCodexHookState(
+  home: string,
+  state: { enabled?: boolean; trustedHash?: string } = { trustedHash: CODEX_HOOK_TRUSTED_HASH }
+) {
+  const key = `${path.join(home, ".codex", "hooks.json")}:user_prompt_submit:0:0`;
+  const lines = [`[hooks.state.${JSON.stringify(key)}]`];
+  if (state.enabled !== undefined) {
+    lines.push(`enabled = ${state.enabled}`);
+  }
+  if (state.trustedHash !== undefined) {
+    lines.push(`trusted_hash = ${JSON.stringify(state.trustedHash)}`);
+  }
+  await writeFile(path.join(home, ".codex", "config.toml"), `${lines.join("\n")}\n`, "utf8");
+}
+
 describe("openbrain doctor", () => {
   test("reports a healthy setup with no failures", async () => {
     const home = await tempHome();
@@ -77,7 +94,10 @@ describe("openbrain doctor", () => {
       detail: expect.stringContaining("384-dim")
     });
     expect(check(report, "codex adapter").status).toBe("ok");
-    expect(check(report, "codex hook").status).toBe("ok");
+    expect(check(report, "codex hook")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining("trust state is unavailable")
+    });
     expect(check(report, "claude adapter").status).toBe("ok");
     expect(check(report, "claude hook").status).toBe("ok");
     expect(check(report, "review backlog")).toMatchObject({ status: "ok", detail: "no pending reviews" });
@@ -281,6 +301,7 @@ describe("openbrain doctor", () => {
   test("reports synced agent integrations as hook-backed", async () => {
     const home = await tempHome();
     await setupOpenBrain({ brainScope: "default", syncCodex: true, syncClaude: true }, options(home));
+    await writeCodexHookState(home);
 
     const report = await runDoctor({ ...options(home), fetch: offlineFetch });
 
@@ -292,6 +313,24 @@ describe("openbrain doctor", () => {
       status: "ok",
       detail: expect.stringContaining("hook-backed")
     });
+  });
+
+  test.each([
+    [{}, "untrusted"],
+    [{ enabled: false, trustedHash: CODEX_HOOK_TRUSTED_HASH }, "disabled"],
+    [{ trustedHash: "sha256:stale" }, "modified"]
+  ])("warns when the Codex hook is %s", async (state, expectedDetail) => {
+    const home = await tempHome();
+    await setupOpenBrain({ brainScope: "default", syncCodex: true, syncClaude: false }, options(home));
+    await writeCodexHookState(home, state);
+
+    const report = await runDoctor({ ...options(home), fetch: offlineFetch });
+
+    expect(check(report, "codex hook")).toMatchObject({
+      status: "warn",
+      detail: expect.stringContaining(expectedDetail)
+    });
+    expect(check(report, "codex enforcement").status).toBe("warn");
   });
 
   test("reports claude as advisory-only when the SessionStart hook is missing", async () => {

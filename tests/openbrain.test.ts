@@ -1794,7 +1794,7 @@ describe("Codex adapter sync", () => {
     await writeFile(
       path.join(codexHome, "hooks.json"),
       JSON.stringify({
-        custom: true,
+        description: "existing hooks",
         hooks: {
           Stop: [{ hooks: [{ type: "command", command: "keep-stop" }] }],
           UserPromptSubmit: [
@@ -1814,11 +1814,11 @@ describe("Codex adapter sync", () => {
     await syncCodexAgent({ ...options(home), codexHome });
 
     const config = JSON.parse(await readFile(path.join(codexHome, "hooks.json"), "utf8")) as {
-      custom: boolean;
+      description: string;
       hooks: Record<string, Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>>;
     };
     const handlers = config.hooks.UserPromptSubmit.flatMap((group) => group.hooks);
-    expect(config.custom).toBe(true);
+    expect(config.description).toBe("existing hooks");
     expect(config.hooks.Stop[0]?.hooks[0]).toMatchObject({ command: "keep-stop" });
     expect(handlers).toContainEqual(expect.objectContaining({ command: "keep-prompt" }));
     expect(handlers.filter((handler) => handler.command === CODEX_HOOK_COMMAND)).toEqual([
@@ -1829,6 +1829,22 @@ describe("Codex adapter sync", () => {
       })
     ]);
     expect(config.hooks.UserPromptSubmit.at(-1)).not.toHaveProperty("matcher");
+  });
+
+  test.each([
+    [{ hooks: { Stop: { hooks: [] } } }, '"hooks.Stop" is not an array'],
+    [{ custom: true, hooks: {} }, 'unknown top-level field "custom"']
+  ])("refuses to modify an invalid Codex hooks file", async (config, expectedError) => {
+    const home = await tempHome();
+    const codexHome = path.join(home, ".codex");
+    await initOpenBrain(options(home));
+    await mkdir(codexHome, { recursive: true });
+    const original = JSON.stringify(config, null, 2);
+    const file = path.join(codexHome, "hooks.json");
+    await writeFile(file, original, "utf8");
+
+    await expect(syncCodexAgent({ ...options(home), codexHome })).rejects.toThrow(expectedError);
+    await expect(readFile(file, "utf8")).resolves.toBe(original);
   });
 
   test("injects only relevant high-confidence durable memories", async () => {
@@ -1915,7 +1931,9 @@ describe("Codex adapter sync", () => {
         JSON.stringify({
           hook_event_name: "UserPromptSubmit",
           cwd: path.join(home, "workspace"),
-          prompt: "Investigate an unrelated rendering bug"
+          // "release" produces a lexical hit, but the orthogonal embedding
+          // keeps it below the semantic relevance threshold.
+          prompt: "Investigate an unrelated release bug"
         }),
         options(home, embedder)
       )

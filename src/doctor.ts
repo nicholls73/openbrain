@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -407,11 +408,27 @@ async function codexHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
         hint: "Fix or remove the malformed value, then rerun: openbrain agents sync codex"
       };
     }
-    if (hasCommandHook(parsed, "UserPromptSubmit", CODEX_HOOK_COMMAND)) {
+    const hook = findCommandHook(parsed, "UserPromptSubmit", CODEX_HOOK_COMMAND);
+    if (hook) {
+      const trust = await codexHookTrust(file, hook);
+      if (trust === "trusted") {
+        return {
+          status: "ok",
+          name: "codex hook",
+          detail: `UserPromptSubmit hook is trusted and enabled in ${file}`
+        };
+      }
       return {
-        status: "ok",
+        status: "warn",
         name: "codex hook",
-        detail: `UserPromptSubmit hook installed in ${file}; review trust with /hooks in Codex`
+        detail:
+          trust === "unavailable"
+            ? `UserPromptSubmit hook installed in ${file}, but its trust state is unavailable`
+            : `UserPromptSubmit hook installed in ${file}, but it is ${trust}`,
+        hint:
+          trust === "disabled"
+            ? "Enable the hook with /hooks in Codex."
+            : "Review and trust the hook with /hooks in Codex."
       };
     }
   } catch {
@@ -426,14 +443,94 @@ async function codexHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
 }
 
 function hasCommandHook(value: unknown, event: string, command: string) {
+  return Boolean(findCommandHook(value, event, command));
+}
+
+interface CommandHookLocation {
+  groupIndex: number;
+  handlerIndex: number;
+  handler: Record<string, unknown>;
+}
+
+function findCommandHook(value: unknown, event: string, command: string): CommandHookLocation | undefined {
   if (!isRecord(value) || !isRecord(value.hooks) || !Array.isArray(value.hooks[event])) {
-    return false;
+    return undefined;
   }
-  return value.hooks[event].some(
-    (group) =>
-      isRecord(group) &&
-      Array.isArray(group.hooks) &&
-      group.hooks.some((handler) => isRecord(handler) && handler.command === command)
+  for (const [groupIndex, group] of value.hooks[event].entries()) {
+    if (!isRecord(group) || !Array.isArray(group.hooks)) {
+      continue;
+    }
+    const handlerIndex = group.hooks.findIndex((handler) => isRecord(handler) && handler.command === command);
+    const handler = group.hooks[handlerIndex];
+    if (handlerIndex >= 0 && isRecord(handler)) {
+      return { groupIndex, handlerIndex, handler };
+    }
+  }
+  return undefined;
+}
+
+async function codexHookTrust(file: string, hook: CommandHookLocation) {
+  let config: string;
+  try {
+    config = await readFile(path.join(path.dirname(file), "config.toml"), "utf8");
+  } catch {
+    return "unavailable" as const;
+  }
+  const key = `${file}:user_prompt_submit:${hook.groupIndex}:${hook.handlerIndex}`;
+  const header = `[hooks.state.${JSON.stringify(key)}]`;
+  const lines = config.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === header);
+  if (start < 0) {
+    return "untrusted" as const;
+  }
+  const section = lines.slice(start + 1).findIndex((line) => /^\s*\[/.test(line));
+  const stateLines = lines.slice(start + 1, section < 0 ? undefined : start + 1 + section);
+  if (stateLines.some((line) => /^\s*enabled\s*=\s*false\s*(?:#.*)?$/.test(line))) {
+    return "disabled" as const;
+  }
+  const hashLine = stateLines.find((line) => /^\s*trusted_hash\s*=/.test(line));
+  const trustedHash = hashLine?.match(/^\s*trusted_hash\s*=\s*"([^"]+)"/)?.[1];
+  if (!trustedHash) {
+    return "untrusted" as const;
+  }
+  return trustedHash === codexCommandHookHash(hook.handler) ? ("trusted" as const) : ("modified" as const);
+}
+
+function codexCommandHookHash(handler: Record<string, unknown>) {
+  // Mirrors Codex's normalized hook identity and canonical SHA-256 trust hash.
+  const normalized: Record<string, unknown> = {
+    type: "command",
+    command: handler.command,
+    timeout:
+      typeof handler.timeout === "number" && Number.isInteger(handler.timeout)
+        ? Math.max(1, handler.timeout)
+        : 600,
+    async: handler.async === true
+  };
+  if (typeof handler.statusMessage === "string") {
+    normalized.statusMessage = handler.statusMessage;
+  }
+  if (typeof handler.additionalContextLimit === "number" && handler.additionalContextLimit !== 2500) {
+    normalized.additionalContextLimit = handler.additionalContextLimit;
+  }
+  const identity = canonicalJson({
+    event_name: "user_prompt_submit",
+    hooks: [normalized]
+  });
+  return `sha256:${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalJson);
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalJson(value[key])])
   );
 }
 
@@ -452,8 +549,8 @@ function codexEnforcementCheck(hook: DoctorCheck): DoctorCheck {
   return {
     status: "warn",
     name: "codex enforcement",
-    detail: "advisory-only: without the UserPromptSubmit hook, agents rely on the AGENTS.md block alone",
-    hint: "openbrain agents sync codex"
+    detail: "advisory-only: the UserPromptSubmit hook is not active, so agents rely on AGENTS.md alone",
+    hint: hook.hint ?? "openbrain agents sync codex"
   };
 }
 

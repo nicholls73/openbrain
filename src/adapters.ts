@@ -14,6 +14,19 @@ const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
 // idempotent settings.json merges off this substring, so it must not change.
 export const CLAUDE_HOOK_COMMAND = "openbrain hook session-start";
 export const CODEX_HOOK_COMMAND = "openbrain hook user-prompt-submit";
+const CODEX_HOOK_EVENTS = [
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
+  "SubagentStart",
+  "SubagentStop",
+  "Stop"
+] as const;
 
 // Detection is deliberately just "does the agent's config directory exist".
 // Both CLIs create their directory on first run, and it is the same location
@@ -98,17 +111,111 @@ export function codexHooksShapeProblem(value: unknown): string | null {
   if (!isRecord(value)) {
     return "the top-level value is not an object";
   }
+  const unknownField = Object.keys(value).find((field) => field !== "description" && field !== "hooks");
+  if (unknownField) {
+    return `unknown top-level field "${unknownField}"`;
+  }
+  if (
+    value.description !== undefined &&
+    value.description !== null &&
+    typeof value.description !== "string"
+  ) {
+    return '"description" is not a string';
+  }
   if (value.hooks !== undefined && !isRecord(value.hooks)) {
     return '"hooks" is not an object';
   }
-  if (
-    isRecord(value.hooks) &&
-    value.hooks.UserPromptSubmit !== undefined &&
-    !Array.isArray(value.hooks.UserPromptSubmit)
-  ) {
-    return '"hooks.UserPromptSubmit" is not an array';
+  if (!isRecord(value.hooks)) {
+    return null;
+  }
+  for (const event of CODEX_HOOK_EVENTS) {
+    const groups = value.hooks[event];
+    if (groups === undefined) {
+      continue;
+    }
+    if (!Array.isArray(groups)) {
+      return `"hooks.${event}" is not an array`;
+    }
+    for (const [groupIndex, group] of groups.entries()) {
+      if (!isRecord(group)) {
+        return `"hooks.${event}[${groupIndex}]" is not an object`;
+      }
+      if (group.matcher !== undefined && group.matcher !== null && typeof group.matcher !== "string") {
+        return `"hooks.${event}[${groupIndex}].matcher" is not a string`;
+      }
+      if (group.hooks === undefined) {
+        continue;
+      }
+      if (!Array.isArray(group.hooks)) {
+        return `"hooks.${event}[${groupIndex}].hooks" is not an array`;
+      }
+      for (const [handlerIndex, handler] of group.hooks.entries()) {
+        const problem = codexHookHandlerProblem(handler);
+        if (problem) {
+          return `"hooks.${event}[${groupIndex}].hooks[${handlerIndex}]" ${problem}`;
+        }
+      }
+    }
   }
   return null;
+}
+
+function codexHookHandlerProblem(value: unknown) {
+  if (!isRecord(value)) {
+    return "is not an object";
+  }
+  if (value.type !== "command" && value.type !== "mcp_tool") {
+    return value.type === "prompt" || value.type === "agent" ? null : 'has an unsupported "type"';
+  }
+  if (value.type === "command" && typeof value.command !== "string") {
+    return 'requires a string "command"';
+  }
+  if (value.type === "mcp_tool" && (typeof value.server !== "string" || typeof value.tool !== "string")) {
+    return 'requires string "server" and "tool" fields';
+  }
+  const stringFields =
+    value.type === "command"
+      ? (["commandWindows", "command_windows", "statusMessage"] as const)
+      : (["statusMessage"] as const);
+  const badString = stringFields.find(
+    (field) => value[field] !== undefined && value[field] !== null && typeof value[field] !== "string"
+  );
+  if (badString) {
+    return `has a non-string "${badString}"`;
+  }
+  const numberFields =
+    value.type === "command" ? (["timeout", "additionalContextLimit"] as const) : (["timeout"] as const);
+  const badNumber = numberFields.find(
+    (field) =>
+      value[field] !== undefined &&
+      value[field] !== null &&
+      !(typeof value[field] === "number" && Number.isSafeInteger(value[field]) && value[field] >= 0)
+  );
+  if (badNumber) {
+    return `has an invalid "${badNumber}"`;
+  }
+  if (value.type === "command" && value.async !== undefined && typeof value.async !== "boolean") {
+    return 'has a non-boolean "async"';
+  }
+  if (value.type === "mcp_tool" && value.input !== undefined && !isTomlCompatibleJson(value.input)) {
+    return 'has an invalid "input"';
+  }
+  return null;
+}
+
+function isTomlCompatibleJson(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+  if (typeof value !== "object") {
+    return typeof value === "string" || typeof value === "boolean";
+  }
+  return Array.isArray(value)
+    ? value.every(isTomlCompatibleJson)
+    : isRecord(value) && Object.values(value).every(isTomlCompatibleJson);
 }
 
 // Codex injects this JSON as developer context before each user prompt. The
@@ -143,12 +250,15 @@ export async function runUserPromptSubmitHook(
       limit: 3,
       quiet: true
     });
-    if (!results.length) {
+    // FTS contributes recall, but only the existing vector-similarity threshold
+    // is strong enough for automatic prompt injection.
+    const relevant = results.filter((result) => result.match !== "fts");
+    if (!relevant.length) {
       return undefined;
     }
     const additionalContext = [
       "OpenBrain found relevant durable memories. Use only those applicable to this request:",
-      ...results.map((result) => `- [${result.type}] ${result.excerpt}`)
+      ...relevant.map((result) => `- [${result.type}] ${result.excerpt}`)
     ].join("\n");
     return {
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext }
