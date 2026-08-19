@@ -15,13 +15,12 @@ describe("parseSearchArgs", () => {
     expect(() => parseSearchArgs(["query", flag])).toThrow(`${flag} requires a value`);
   });
 
-  test.each([
-    "--type",
-    "--scope",
-    "--confidence"
-  ])("%s followed by another flag reports a missing value", (flag) => {
-    expect(() => parseSearchArgs(["query", flag, "--durable-only"])).toThrow(`${flag} requires a value`);
-  });
+  test.each(["--type", "--scope", "--confidence"])(
+    "%s followed by another flag reports a missing value",
+    (flag) => {
+      expect(() => parseSearchArgs(["query", flag, "--durable-only"])).toThrow(`${flag} requires a value`);
+    }
+  );
 
   test("accepts an empty string as an option value", () => {
     expect(parseSearchArgs(["query", "--scope", ""])).toEqual({
