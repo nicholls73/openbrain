@@ -1,13 +1,20 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { claudeSettingsShapeProblem } from "./adapters.js";
+import { claudeSettingsShapeProblem, codexHooksShapeProblem } from "./adapters.js";
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
-import { CLAUDE_HOOK_COMMAND, getBrainStatus, memoryFiles, OPENBRAIN_BEGIN } from "./openbrain.js";
-import { claudeHome, claudeSettingsPath, codexHome, configPath, dreamsDir } from "./paths.js";
+import {
+  CLAUDE_HOOK_COMMAND,
+  CODEX_HOOK_COMMAND,
+  getBrainStatus,
+  memoryFiles,
+  OPENBRAIN_BEGIN
+} from "./openbrain.js";
+import { claudeHome, claudeSettingsPath, codexHome, codexHooksPath, configPath, dreamsDir } from "./paths.js";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 import { fetchLatestVersion, isNewerVersion, readCurrentVersion, UPDATE_COMMAND } from "./update.js";
 
@@ -66,12 +73,8 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
 
   if (config.agents.codex.enabled) {
     checks.push(await adapterCheck("codex adapter", path.join(codexHome(options), "AGENTS.md"), "codex"));
-    checks.push({
-      status: "warn",
-      name: "codex enforcement",
-      detail:
-        "advisory-only: Codex relies solely on the AGENTS.md block; nothing enforces that agents follow it"
-    });
+    const hook = await codexHookCheck(options);
+    checks.push(hook, codexEnforcementCheck(hook));
   }
   if (config.agents.claude.enabled) {
     checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
@@ -367,7 +370,7 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
         hint: "Fix or remove the malformed value, then rerun: openbrain agents sync claude"
       };
     }
-    if (raw.includes(CLAUDE_HOOK_COMMAND)) {
+    if (hasCommandHook(parsed, "SessionStart", CLAUDE_HOOK_COMMAND)) {
       return { status: "ok", name: "claude hook", detail: `SessionStart hook installed in ${file}` };
     }
   } catch {
@@ -378,6 +381,176 @@ async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> 
     name: "claude hook",
     detail: `SessionStart hook missing from ${file}`,
     hint: "openbrain agents sync claude"
+  };
+}
+
+async function codexHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
+  const file = codexHooksPath(options);
+  try {
+    const raw = await readFile(file, "utf8");
+    let parsed: unknown = {};
+    try {
+      parsed = raw.trim() ? JSON.parse(raw) : {};
+    } catch {
+      return {
+        status: "warn",
+        name: "codex hook",
+        detail: `${file} is not valid JSON; the UserPromptSubmit hook does not run`,
+        hint: "Fix the JSON, then rerun: openbrain agents sync codex"
+      };
+    }
+    const problem = codexHooksShapeProblem(parsed);
+    if (problem) {
+      return {
+        status: "warn",
+        name: "codex hook",
+        detail: `${file} is malformed (${problem}); the UserPromptSubmit hook does not run`,
+        hint: "Fix or remove the malformed value, then rerun: openbrain agents sync codex"
+      };
+    }
+    const hook = findCommandHook(parsed, "UserPromptSubmit", CODEX_HOOK_COMMAND);
+    if (hook) {
+      const trust = await codexHookTrust(file, hook);
+      if (trust === "trusted") {
+        return {
+          status: "ok",
+          name: "codex hook",
+          detail: `UserPromptSubmit hook is trusted and enabled in ${file}`
+        };
+      }
+      return {
+        status: "warn",
+        name: "codex hook",
+        detail:
+          trust === "unavailable"
+            ? `UserPromptSubmit hook installed in ${file}, but its trust state is unavailable`
+            : `UserPromptSubmit hook installed in ${file}, but it is ${trust}`,
+        hint:
+          trust === "disabled"
+            ? "Enable the hook with /hooks in Codex."
+            : "Review and trust the hook with /hooks in Codex."
+      };
+    }
+  } catch {
+    // Fall through to the warn below.
+  }
+  return {
+    status: "warn",
+    name: "codex hook",
+    detail: `UserPromptSubmit hook missing from ${file}`,
+    hint: "openbrain agents sync codex"
+  };
+}
+
+function hasCommandHook(value: unknown, event: string, command: string) {
+  return Boolean(findCommandHook(value, event, command));
+}
+
+interface CommandHookLocation {
+  groupIndex: number;
+  handlerIndex: number;
+  handler: Record<string, unknown>;
+}
+
+function findCommandHook(value: unknown, event: string, command: string): CommandHookLocation | undefined {
+  if (!isRecord(value) || !isRecord(value.hooks) || !Array.isArray(value.hooks[event])) {
+    return undefined;
+  }
+  for (const [groupIndex, group] of value.hooks[event].entries()) {
+    if (!isRecord(group) || !Array.isArray(group.hooks)) {
+      continue;
+    }
+    const handlerIndex = group.hooks.findIndex((handler) => isRecord(handler) && handler.command === command);
+    const handler = group.hooks[handlerIndex];
+    if (handlerIndex >= 0 && isRecord(handler)) {
+      return { groupIndex, handlerIndex, handler };
+    }
+  }
+  return undefined;
+}
+
+async function codexHookTrust(file: string, hook: CommandHookLocation) {
+  let config: string;
+  try {
+    config = await readFile(path.join(path.dirname(file), "config.toml"), "utf8");
+  } catch {
+    return "unavailable" as const;
+  }
+  const key = `${file}:user_prompt_submit:${hook.groupIndex}:${hook.handlerIndex}`;
+  const header = `[hooks.state.${JSON.stringify(key)}]`;
+  const lines = config.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === header);
+  if (start < 0) {
+    return "untrusted" as const;
+  }
+  const section = lines.slice(start + 1).findIndex((line) => /^\s*\[/.test(line));
+  const stateLines = lines.slice(start + 1, section < 0 ? undefined : start + 1 + section);
+  if (stateLines.some((line) => /^\s*enabled\s*=\s*false\s*(?:#.*)?$/.test(line))) {
+    return "disabled" as const;
+  }
+  const hashLine = stateLines.find((line) => /^\s*trusted_hash\s*=/.test(line));
+  const trustedHash = hashLine?.match(/^\s*trusted_hash\s*=\s*"([^"]+)"/)?.[1];
+  if (!trustedHash) {
+    return "untrusted" as const;
+  }
+  return trustedHash === codexCommandHookHash(hook.handler) ? ("trusted" as const) : ("modified" as const);
+}
+
+function codexCommandHookHash(handler: Record<string, unknown>) {
+  // Mirrors Codex's normalized hook identity and canonical SHA-256 trust hash.
+  const normalized: Record<string, unknown> = {
+    type: "command",
+    command: handler.command,
+    timeout:
+      typeof handler.timeout === "number" && Number.isInteger(handler.timeout)
+        ? Math.max(1, handler.timeout)
+        : 600,
+    async: handler.async === true
+  };
+  if (typeof handler.statusMessage === "string") {
+    normalized.statusMessage = handler.statusMessage;
+  }
+  if (typeof handler.additionalContextLimit === "number" && handler.additionalContextLimit !== 2500) {
+    normalized.additionalContextLimit = handler.additionalContextLimit;
+  }
+  const identity = canonicalJson({
+    event_name: "user_prompt_submit",
+    hooks: [normalized]
+  });
+  return `sha256:${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalJson);
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalJson(value[key])])
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function codexEnforcementCheck(hook: DoctorCheck): DoctorCheck {
+  if (hook.status === "ok") {
+    return {
+      status: "ok",
+      name: "codex enforcement",
+      detail: "hook-backed: the UserPromptSubmit hook retrieves relevant memory before each prompt"
+    };
+  }
+  return {
+    status: "warn",
+    name: "codex enforcement",
+    detail: "advisory-only: the UserPromptSubmit hook is not active, so agents rely on AGENTS.md alone",
+    hint: hook.hint ?? "openbrain agents sync codex"
   };
 }
 
