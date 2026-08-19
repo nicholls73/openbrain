@@ -3,7 +3,8 @@ import path from "node:path";
 import { loadConfig } from "./config.js";
 import { getBrainStatus, initOpenBrain } from "./internal.js";
 import { dreamMaybe, listPendingReviews } from "./maintenance.js";
-import { claudeHome, claudeSettingsPath, codexHome } from "./paths.js";
+import { claudeHome, claudeSettingsPath, codexHome, codexHooksPath } from "./paths.js";
+import { searchMemories } from "./search.js";
 import type { BrainStatus, OpenBrainOptions, PendingReview } from "./types.js";
 
 export const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
@@ -12,6 +13,20 @@ const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
 // Stable marker for the Claude Code SessionStart hook command. The adapter keys
 // idempotent settings.json merges off this substring, so it must not change.
 export const CLAUDE_HOOK_COMMAND = "openbrain hook session-start";
+export const CODEX_HOOK_COMMAND = "openbrain hook user-prompt-submit";
+const CODEX_HOOK_EVENTS = [
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
+  "SubagentStart",
+  "SubagentStop",
+  "Stop"
+] as const;
 
 // Detection is deliberately just "does the agent's config directory exist".
 // Both CLIs create their directory on first run, and it is the same location
@@ -33,7 +48,224 @@ async function directoryExists(dir: string) {
 }
 
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
-  return syncInstructionFile(codexHome(options), "AGENTS.md", options);
+  const file = await syncInstructionFile(codexHome(options), "AGENTS.md", options);
+  await syncCodexHooks(options);
+  return file;
+}
+
+// Merge a point-of-use retrieval hook into Codex's global hooks without
+// replacing the user's other hook events or handlers.
+export async function syncCodexHooks(options: OpenBrainOptions = {}) {
+  const file = codexHooksPath(options);
+  await mkdir(path.dirname(file), { recursive: true });
+
+  let settings: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(file, "utf8");
+    const parsed = raw.trim() ? JSON.parse(raw) : {};
+    const problem = codexHooksShapeProblem(parsed);
+    if (problem) {
+      throw new Error(
+        `OpenBrain cannot update ${file}: ${problem}. ` +
+          "Fix or remove the malformed value, then rerun openbrain agents sync codex."
+      );
+    }
+    settings = parsed as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const hooks = isRecord(settings.hooks) ? { ...settings.hooks } : {};
+  const promptSubmit = Array.isArray(hooks.UserPromptSubmit) ? hooks.UserPromptSubmit : [];
+  const cleaned = promptSubmit
+    .map((group) => {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) {
+        return group;
+      }
+      return {
+        ...group,
+        hooks: group.hooks.filter((entry) => !(isRecord(entry) && entry.command === CODEX_HOOK_COMMAND))
+      };
+    })
+    .filter((group) => !(isRecord(group) && Array.isArray(group.hooks) && group.hooks.length === 0));
+
+  cleaned.push({
+    hooks: [
+      {
+        type: "command",
+        command: CODEX_HOOK_COMMAND,
+        statusMessage: "Searching OpenBrain memory",
+        additionalContextLimit: 1000
+      }
+    ]
+  });
+  hooks.UserPromptSubmit = cleaned;
+  settings.hooks = hooks;
+  await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  return file;
+}
+
+export function codexHooksShapeProblem(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return "the top-level value is not an object";
+  }
+  const unknownField = Object.keys(value).find((field) => field !== "description" && field !== "hooks");
+  if (unknownField) {
+    return `unknown top-level field "${unknownField}"`;
+  }
+  if (
+    value.description !== undefined &&
+    value.description !== null &&
+    typeof value.description !== "string"
+  ) {
+    return '"description" is not a string';
+  }
+  if (value.hooks !== undefined && !isRecord(value.hooks)) {
+    return '"hooks" is not an object';
+  }
+  if (!isRecord(value.hooks)) {
+    return null;
+  }
+  for (const event of CODEX_HOOK_EVENTS) {
+    const groups = value.hooks[event];
+    if (groups === undefined) {
+      continue;
+    }
+    if (!Array.isArray(groups)) {
+      return `"hooks.${event}" is not an array`;
+    }
+    for (const [groupIndex, group] of groups.entries()) {
+      if (!isRecord(group)) {
+        return `"hooks.${event}[${groupIndex}]" is not an object`;
+      }
+      if (group.matcher !== undefined && group.matcher !== null && typeof group.matcher !== "string") {
+        return `"hooks.${event}[${groupIndex}].matcher" is not a string`;
+      }
+      if (group.hooks === undefined) {
+        continue;
+      }
+      if (!Array.isArray(group.hooks)) {
+        return `"hooks.${event}[${groupIndex}].hooks" is not an array`;
+      }
+      for (const [handlerIndex, handler] of group.hooks.entries()) {
+        const problem = codexHookHandlerProblem(handler);
+        if (problem) {
+          return `"hooks.${event}[${groupIndex}].hooks[${handlerIndex}]" ${problem}`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function codexHookHandlerProblem(value: unknown) {
+  if (!isRecord(value)) {
+    return "is not an object";
+  }
+  if (value.type !== "command" && value.type !== "mcp_tool") {
+    return value.type === "prompt" || value.type === "agent" ? null : 'has an unsupported "type"';
+  }
+  if (value.type === "command" && typeof value.command !== "string") {
+    return 'requires a string "command"';
+  }
+  if (value.type === "mcp_tool" && (typeof value.server !== "string" || typeof value.tool !== "string")) {
+    return 'requires string "server" and "tool" fields';
+  }
+  const stringFields =
+    value.type === "command"
+      ? (["commandWindows", "command_windows", "statusMessage"] as const)
+      : (["statusMessage"] as const);
+  const badString = stringFields.find(
+    (field) => value[field] !== undefined && value[field] !== null && typeof value[field] !== "string"
+  );
+  if (badString) {
+    return `has a non-string "${badString}"`;
+  }
+  const numberFields =
+    value.type === "command" ? (["timeout", "additionalContextLimit"] as const) : (["timeout"] as const);
+  const badNumber = numberFields.find(
+    (field) =>
+      value[field] !== undefined &&
+      value[field] !== null &&
+      !(typeof value[field] === "number" && Number.isSafeInteger(value[field]) && value[field] >= 0)
+  );
+  if (badNumber) {
+    return `has an invalid "${badNumber}"`;
+  }
+  if (value.type === "command" && value.async !== undefined && typeof value.async !== "boolean") {
+    return 'has a non-boolean "async"';
+  }
+  if (value.type === "mcp_tool" && value.input !== undefined && !isTomlCompatibleJson(value.input)) {
+    return 'has an invalid "input"';
+  }
+  return null;
+}
+
+function isTomlCompatibleJson(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+  if (typeof value !== "object") {
+    return typeof value === "string" || typeof value === "boolean";
+  }
+  return Array.isArray(value)
+    ? value.every(isTomlCompatibleJson)
+    : isRecord(value) && Object.values(value).every(isTomlCompatibleJson);
+}
+
+// Codex injects this JSON as developer context before each user prompt. The
+// hook is deliberately read-only and fail-open: malformed input, unavailable
+// brains, and retrieval failures all produce no output.
+export async function runUserPromptSubmitHook(
+  rawInput: string,
+  options: OpenBrainOptions = {}
+): Promise<
+  | {
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit"; additionalContext: string };
+    }
+  | undefined
+> {
+  try {
+    const input = JSON.parse(rawInput) as unknown;
+    if (
+      !isRecord(input) ||
+      input.hook_event_name !== "UserPromptSubmit" ||
+      typeof input.cwd !== "string" ||
+      typeof input.prompt !== "string" ||
+      !input.prompt.trim()
+    ) {
+      return undefined;
+    }
+    const results = await searchMemories(input.prompt, {
+      ...options,
+      cwd: input.cwd,
+      confidence: "high",
+      durableOnly: true,
+      includePrivate: false,
+      limit: 3,
+      quiet: true
+    });
+    // FTS contributes recall, but only the existing vector-similarity threshold
+    // is strong enough for automatic prompt injection.
+    const relevant = results.filter((result) => result.match !== "fts");
+    if (!relevant.length) {
+      return undefined;
+    }
+    const additionalContext = [
+      "OpenBrain found relevant durable memories. Use only those applicable to this request:",
+      ...relevant.map((result) => `- [${result.type}] ${result.excerpt}`)
+    ].join("\n");
+    return {
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext }
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function syncClaudeAgent(options: OpenBrainOptions = {}, disableAutoMemory = false) {

@@ -20,6 +20,7 @@ import {
   pruneEpisodes,
   rebuildIndex,
   runSessionStartHook,
+  runUserPromptSubmitHook,
   searchMemories,
   setupOpenBrain,
   showMemory,
@@ -27,7 +28,7 @@ import {
   syncCodexAgent,
   updateMemory
 } from "./openbrain.js";
-import { claudeSettingsPath } from "./paths.js";
+import { claudeSettingsPath, codexHooksPath } from "./paths.js";
 import { parseConfidence, parseSearchArgs } from "./search-args.js";
 import {
   type DurableMemoryType,
@@ -76,6 +77,7 @@ async function main(argv: string[]) {
     if (agent === "codex") {
       const file = await syncCodexAgent();
       console.log(`Synced Codex adapter: ${file}`);
+      console.log(`Installed UserPromptSubmit hook: ${codexHooksPath()}`);
       return;
     }
     if (agent === "claude") {
@@ -122,6 +124,22 @@ async function main(argv: string[]) {
   if (area === "hook" && command === "session-start") {
     const reminder = await runSessionStartHook();
     console.log(reminder);
+    return;
+  }
+
+  if (area === "hook" && command === "user-prompt-submit") {
+    try {
+      let input = "";
+      for await (const chunk of process.stdin) {
+        input += chunk;
+      }
+      const output = await runUserPromptSubmitHook(input);
+      if (output) {
+        process.stdout.write(JSON.stringify(output));
+      }
+    } catch {
+      // Hook failures must never block or pollute a Codex prompt.
+    }
     return;
   }
 
@@ -650,6 +668,7 @@ function usage() {
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]
   openbrain hook session-start
+  openbrain hook user-prompt-submit
   openbrain memory add --type <type> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--promoted-from <id>] [--promote-as <type>]
   openbrain memory update <id> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private]
   openbrain memory merge <source-id> --into <target-id> --text <text>
