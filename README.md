@@ -58,6 +58,7 @@ Only proceed if your user explicitly asked you to install OpenBrain.
 | `~/.openbrain/brains/<name>/openbrain.db` | Rebuildable SQLite FTS/vector index. |
 | `~/.openbrain/models/` | Local embedding model cache. |
 | `~/.codex/AGENTS.md` | Marked OpenBrain instruction block (Codex adapter, if detected). |
+| `~/.codex/hooks.json` | `UserPromptSubmit` hook retrieving relevant durable memory (Codex adapter). |
 | `~/.claude/CLAUDE.md` | Marked OpenBrain instruction block (Claude Code adapter, if detected). |
 | `~/.claude/settings.json` | `SessionStart` hook running `openbrain hook session-start` (Claude Code adapter). |
 
@@ -70,7 +71,7 @@ Only proceed if your user explicitly asked you to install OpenBrain.
 - Memories stay readable as Markdown.
 - Brain routing can keep different contexts separate by filesystem path.
 - Agents quietly trigger `openbrain dream maybe --quiet` so each brain can run maintenance once per day.
-- The current adapters sync a marked OpenBrain block into `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`. The Claude Code adapter also installs a `SessionStart` hook in `~/.claude/settings.json` that runs `openbrain hook session-start`, so Claude Code dreams and is reminded to search memory on every session instead of relying on the advisory block.
+- The current adapters sync a marked OpenBrain block into `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`. Codex also gets a `UserPromptSubmit` hook that injects up to three relevant, high-confidence durable memories before each prompt; review and trust this user-installed hook with `/hooks` in Codex. Claude Code gets a `SessionStart` hook that dreams and reminds the agent to search memory.
 - Episodes can be marked as promotion candidates or discovered from recurring evidence; `dream` writes review files but does not create durable memory automatically.
 
 ## Fallback Installer
@@ -94,7 +95,7 @@ Verify the whole installation at any time with:
 openbrain doctor
 ```
 
-It checks the Node version, installed vs latest version, config, brain routing for the current path, the SQLite index against the Markdown files, embeddings, agent adapters, the Claude hook, and PATH, and prints a fix for anything that is off.
+It checks the Node version, installed vs latest version, config, brain routing for the current path, the SQLite index against the Markdown files, embeddings, agent adapters, hooks, and PATH, and prints a fix for anything that is off.
 
 ## First Run Manually
 
