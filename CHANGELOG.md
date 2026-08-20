@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0](https://github.com/nicholls73/openbrain/compare/v0.7.3...v0.8.0) (2026-08-20)
+
+
+### Features
+
+* add Codex prompt memory hook ([#117](https://github.com/nicholls73/openbrain/issues/117)) ([182ffb7](https://github.com/nicholls73/openbrain/commit/182ffb7c7449dba6c4c7f0dce49039c426f92c74))
+* discover recurring episode patterns ([#116](https://github.com/nicholls73/openbrain/issues/116)) ([ef0b668](https://github.com/nicholls73/openbrain/commit/ef0b6682e4100e5d92b64b5839b2210894fcfd40))
+
+
+### Bug Fixes
+
+* keep successful searches off stderr ([#114](https://github.com/nicholls73/openbrain/issues/114)) ([0616b68](https://github.com/nicholls73/openbrain/commit/0616b689d5e3c18cb8b472e905058a8584285169))
+
 ## [0.7.3](https://github.com/nicholls73/openbrain/compare/v0.7.2...v0.7.3) (2026-08-03)
 
 
