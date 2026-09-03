@@ -97,6 +97,7 @@ jobs:
           else
             echo "::notice::A newer main commit superseded this release candidate"
           fi
+      # ponytail: commit overrides require squash merges; use release-as if other merge methods must work.
       - name: Treat Dependabot update as patch
         if: steps.main.outputs.current == 'true'
         env:
