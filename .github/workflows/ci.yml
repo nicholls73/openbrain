@@ -97,36 +97,46 @@ jobs:
           else
             echo "::notice::A newer main commit superseded this release candidate"
           fi
-      # ponytail: commit overrides require squash merges; use release-as if other merge methods must work.
-      - name: Treat Dependabot update as patch
+      - name: Prepare Dependabot patch fallback
+        id: dependabot
         if: steps.main.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pr="$(gh api -H "Accept: application/vnd.github+json" \
+          updates="$(gh api -H "Accept: application/vnd.github+json" \
             "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
             --jq '[.[] | select(.user.login == "dependabot[bot]" and .user.type == "Bot")] |
-              if length == 1 then .[0] else empty end')"
-          if [[ -z "${pr}" ]] || jq -e '(.body // "") | contains("BEGIN_COMMIT_OVERRIDE")' <<< "${pr}" > /dev/null; then
+              length')"
+          pending="$(gh pr list --repo "${GITHUB_REPOSITORY}" --state open --base main \
+            --label "autorelease: pending" --json number --jq 'length')"
+          if [[ "${updates}" -ne 1 || "${pending}" -ne 0 ]]; then
             exit 0
           fi
-          title="$(jq -er '.title | select(test("^chore(\\([^)]*\\))?: ")) | sub("^chore"; "fix")' <<< "${pr}")"
-          number="$(jq -er '.number' <<< "${pr}")"
-          body="$(jq -r --arg title "${title}" '
-            (.body // "") + "\n\nBEGIN_COMMIT_OVERRIDE\n" + $title + "\nEND_COMMIT_OVERRIDE\n"
-          ' <<< "${pr}")"
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/pulls/${number}" -f "body=${body}" > /dev/null
+          current="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${GITHUB_SHA}" --jq '.version')"
+          release_as="$(jq -nr --arg version "${current}" '
+            $version | capture("^(?<major>0|[1-9][0-9]*)\\.(?<minor>0|[1-9][0-9]*)\\.(?<patch>0|[1-9][0-9]*)$") |
+            "\(.major).\(.minor).\((.patch | tonumber) + 1)"
+          ')"
+          echo "release_as=${release_as}" >> "${GITHUB_OUTPUT}"
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: prepare
         if: steps.main.outputs.current == 'true'
         with:
           release-type: node
           target-branch: main
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: dependabot_prepare
+        if: steps.dependabot.outputs.release_as != '' && steps.prepare.outputs.prs_created != 'true'
+        with:
+          release-type: node
+          target-branch: main
+          release-as: ${{ steps.dependabot.outputs.release_as }}
       - name: Request release approval
-        if: steps.prepare.outputs.prs_created == 'true'
+        if: steps.prepare.outputs.prs_created == 'true' || steps.dependabot_prepare.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
+          RELEASE_PR: ${{ steps.prepare.outputs.pr || steps.dependabot_prepare.outputs.pr }}
         run: |
           pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.sha')"
