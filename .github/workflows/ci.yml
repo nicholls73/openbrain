@@ -97,6 +97,35 @@ jobs:
           else
             echo "::notice::A newer main commit superseded this release candidate"
           fi
+      - name: Treat Dependabot updates as patches
+        if: steps.main.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prs="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls")"
+          pr="$(jq -c --arg sha "${GITHUB_SHA}" '
+            [.[] | select(
+              .state == "closed" and
+              .merged_at != null and
+              .merge_commit_sha == $sha and
+              .base.ref == "main" and
+              .user.login == "dependabot[bot]" and
+              .user.type == "Bot"
+            )] | if length == 1 then .[0] else empty end
+          ' <<< "${prs}")"
+          if [[ -z "${pr}" ]] || jq -e '(.body // "") | contains("BEGIN_COMMIT_OVERRIDE")' <<< "${pr}" > /dev/null; then
+            exit 0
+          fi
+          title="$(jq -er '
+            .title | if test("^chore(\\([^)]*\\))?: ") then sub("^chore"; "fix")
+            else error("Dependabot PR title is not a chore") end
+          ' <<< "${pr}")"
+          number="$(jq -er '.number' <<< "${pr}")"
+          body="$(jq -r --arg title "${title}" '
+            (.body // "") + "\n\nBEGIN_COMMIT_OVERRIDE\n" + $title + "\nEND_COMMIT_OVERRIDE\n"
+          ' <<< "${pr}")"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/pulls/${number}" -f "body=${body}" > /dev/null
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: prepare
         if: steps.main.outputs.current == 'true'

@@ -10,6 +10,6 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "fix"
-      prefix-development: "fix"
+      prefix: "chore"
+      prefix-development: "chore"
       include: "scope"

@@ -38,6 +38,6 @@ Release Please determines the next version from Conventional Commits merged sinc
 | `feat:` | Minor (`0.5.0` → `0.6.0`) | `feat: add memory export` |
 | Any `<type>!:` or a `BREAKING CHANGE:` footer | Major | `feat!: change the memory format` |
 
-Use Conventional Commit titles for commits and pull requests. A squash-merged pull request uses its title as the commit title. Changes such as `docs:`, `test:`, `ci:`, and `chore:` do not create a release by themselves. Dependabot uses `fix(deps):` and `fix(deps-dev):`, so every merged dependency update creates a patch release.
+Use Conventional Commit titles for commits and pull requests. A squash-merged pull request uses its title as the commit title. Changes such as `docs:`, `test:`, `ci:`, and `chore:` do not create a release by themselves. Dependabot keeps `chore(deps):` and `chore(deps-dev):` titles, while release preparation treats verified Dependabot pull requests as patch releases.
 
 Do not edit package versions or `CHANGELOG.md` manually. After successful CI on `main`, CI prepares the version and changelog in a release pull request, then starts a versioned Release run that waits for approval. Approving that run updates the release pull request to latest `main`, runs fresh checks, then merges, tags, and publishes the release. If the automatic run is unavailable, manually run the Release workflow from `main`; that manual request counts as approval and starts immediately.
