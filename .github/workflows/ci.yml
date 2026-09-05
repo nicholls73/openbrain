@@ -81,6 +81,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [lint, build, test, embeddings-integration]
     runs-on: ubuntu-latest
+    concurrency:
+      group: prepare-release
+      cancel-in-progress: true
     permissions:
       contents: write
       issues: write
@@ -97,17 +100,56 @@ jobs:
           else
             echo "::notice::A newer main commit superseded this release candidate"
           fi
+      - name: Detect Dependabot update
+        id: dependabot_pr
+        if: steps.main.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          updates="$(gh api -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '[.[] | select(.user.login == "dependabot[bot]" and .user.type == "Bot")] |
+              length')"
+          if [[ "${updates}" -eq 1 ]]; then
+            echo "update=true" >> "${GITHUB_OUTPUT}"
+          fi
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: prepare
         if: steps.main.outputs.current == 'true'
         with:
           release-type: node
           target-branch: main
-      - name: Request release approval
-        if: steps.prepare.outputs.prs_created == 'true'
+      - name: Revalidate Dependabot patch fallback
+        id: dependabot
+        if: steps.dependabot_pr.outputs.update == 'true' && steps.prepare.outputs.prs_created != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_PR: ${{ steps.prepare.outputs.pr }}
+        run: |
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          pending="$(gh pr list --repo "${GITHUB_REPOSITORY}" --state open --base main \
+            --label "autorelease: pending" --json number --jq 'length')"
+          if [[ "${current_sha}" != "${GITHUB_SHA}" || "${pending}" -ne 0 ]]; then
+            exit 0
+          fi
+          current="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=${GITHUB_SHA}" --jq '.version')"
+          release_as="$(jq -nr --arg version "${current}" '
+            $version | capture("^(?<major>0|[1-9][0-9]*)\\.(?<minor>0|[1-9][0-9]*)\\.(?<patch>0|[1-9][0-9]*)$") |
+            "\(.major).\(.minor).\((.patch | tonumber) + 1)"
+          ')"
+          echo "release_as=${release_as}" >> "${GITHUB_OUTPUT}"
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: dependabot_prepare
+        if: steps.dependabot.outputs.release_as != '' && steps.prepare.outputs.prs_created != 'true'
+        with:
+          release-type: node
+          target-branch: main
+          release-as: ${{ steps.dependabot.outputs.release_as }}
+      - name: Request release approval
+        if: steps.prepare.outputs.prs_created == 'true' || steps.dependabot_prepare.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.prepare.outputs.pr || steps.dependabot_prepare.outputs.pr }}
         run: |
           pr_number="$(jq -er '.number' <<< "${RELEASE_PR}")"
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.sha')"
