@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/nicholls73/openbrain/compare/v0.8.0...v0.8.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* release Dependabot chores as patches ([#136](https://github.com/nicholls73/openbrain/issues/136)) ([0736af9](https://github.com/nicholls73/openbrain/commit/0736af93fd713015e6565e665ad9e02820c5d2fa))
+* release dependency updates as patches ([#132](https://github.com/nicholls73/openbrain/issues/132)) ([03296f3](https://github.com/nicholls73/openbrain/commit/03296f3a8f27c0077ed673c3f33182635b690e8d))
+
 ## [0.8.0](https://github.com/nicholls73/openbrain/compare/v0.7.3...v0.8.0) (2026-08-20)
 
 
