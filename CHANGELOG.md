@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2](https://github.com/nicholls73/openbrain/compare/v0.8.1...v0.8.2) (2026-09-05)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @types/better-sqlite3 from 7.6.13 to 9.6.0 ([#134](https://github.com/nicholls73/openbrain/issues/134)) ([aae2576](https://github.com/nicholls73/openbrain/commit/aae2576f415a88c4548d96b3318a61d0236ac5f2))
+* **deps:** bump zod from 4.5.2 to 4.5.4 ([#133](https://github.com/nicholls73/openbrain/issues/133)) ([093b7b0](https://github.com/nicholls73/openbrain/commit/093b7b0d14fb385a1e029d85e7399d5795b2a294))
+
 ## [0.8.1](https://github.com/nicholls73/openbrain/compare/v0.8.0...v0.8.1) (2026-09-05)
 
 
