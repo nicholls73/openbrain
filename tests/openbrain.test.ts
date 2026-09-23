@@ -27,7 +27,9 @@ import {
 import {
   addBrainPath,
   addMemory,
+  CODEX_DREAM_HOOK_COMMAND,
   CODEX_HOOK_COMMAND,
+  codexManualGuide,
   deleteMemory,
   dreamMaybe,
   dreamRun,
@@ -1780,6 +1782,18 @@ describe("Codex adapter sync", () => {
     expect(agentFile).toContain("openbrain dream maybe --quiet");
     expect(agentFile).toContain("openbrain memory search");
     expect(hooks.hooks.UserPromptSubmit).toBeUndefined();
+    expect(hooks.hooks.SessionStart).toBeUndefined();
+  });
+
+  test("keeps the on-demand guide consistent with the configured mode", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    await expect(codexManualGuide(options(home))).resolves.toContain("retrieval run automatically");
+    await updateConfig((config) => {
+      config.agents.codex.memoryMode = "manual";
+    }, options(home));
+    await expect(codexManualGuide(options(home))).resolves.toContain("Before starting a task");
   });
 
   test("preserves existing hooks and installs one prompt retrieval hook", async () => {
@@ -1814,6 +1828,7 @@ describe("Codex adapter sync", () => {
       hooks: Record<string, Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>>;
     };
     const handlers = config.hooks.UserPromptSubmit.flatMap((group) => group.hooks);
+    const sessionStartHandlers = config.hooks.SessionStart.flatMap((group) => group.hooks);
     expect(config.description).toBe("existing hooks");
     expect(config.hooks.Stop[0]?.hooks[0]).toMatchObject({ command: "keep-stop" });
     expect(handlers).toContainEqual(expect.objectContaining({ command: "keep-prompt" }));
@@ -1825,6 +1840,9 @@ describe("Codex adapter sync", () => {
       })
     ]);
     expect(config.hooks.UserPromptSubmit.at(-1)).not.toHaveProperty("matcher");
+    expect(sessionStartHandlers.filter((handler) => handler.command === CODEX_DREAM_HOOK_COMMAND)).toEqual([
+      expect.objectContaining({ type: "command", command: CODEX_DREAM_HOOK_COMMAND })
+    ]);
   });
 
   test.each([
@@ -1903,17 +1921,6 @@ describe("Codex adapter sync", () => {
     expect(context).not.toContain("Private release checklist detail");
     expect(context).not.toContain("Episode release checklist evidence");
     expect(context).not.toContain(home);
-
-    await runUserPromptSubmitHook(
-      JSON.stringify({
-        hook_event_name: "UserPromptSubmit",
-        cwd: path.join(home, "workspace"),
-        prompt: "Please use the release checklist"
-      }),
-      options(home, embedder)
-    );
-    const dreams = await readdir(path.join(home, "brains", "main", "dreams"));
-    expect(dreams.filter((file) => file.endsWith("-dream.md"))).toHaveLength(1);
   });
 
   test("prompt retrieval fails open for malformed input and no match", async () => {

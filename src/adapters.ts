@@ -14,6 +14,7 @@ const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
 // idempotent settings.json merges off this substring, so it must not change.
 export const CLAUDE_HOOK_COMMAND = "openbrain hook session-start";
 export const CODEX_HOOK_COMMAND = "openbrain hook user-prompt-submit";
+export const CODEX_DREAM_HOOK_COMMAND = "openbrain dream maybe --quiet";
 const CODEX_HOOK_EVENTS = [
   "PreToolUse",
   "PermissionRequest",
@@ -47,9 +48,9 @@ async function directoryExists(dir: string) {
   }
 }
 
-export async function syncCodexAgent(options: OpenBrainOptions = {}) {
+export async function syncCodexAgent(options: OpenBrainOptions = {}, memoryMode?: "hook" | "manual") {
   const config = await loadConfig(options);
-  const hookFirst = config.agents.codex.memoryMode === "hook";
+  const hookFirst = (memoryMode ?? config.agents.codex.memoryMode) === "hook";
   const file = await syncInstructionFile(
     codexHome(options),
     "AGENTS.md",
@@ -114,6 +115,30 @@ export async function syncCodexHooks(options: OpenBrainOptions = {}, enabled = t
     hooks.UserPromptSubmit = cleaned;
   } else {
     delete hooks.UserPromptSubmit;
+  }
+  const sessionStart = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
+  const cleanedSessionStart = sessionStart
+    .map((group) => {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) {
+        return group;
+      }
+      return {
+        ...group,
+        hooks: group.hooks.filter((entry) => !(isRecord(entry) && entry.command === CODEX_DREAM_HOOK_COMMAND))
+      };
+    })
+    .filter((group) => !(isRecord(group) && Array.isArray(group.hooks) && group.hooks.length === 0));
+  if (enabled) {
+    cleanedSessionStart.push({
+      hooks: [
+        { type: "command", command: CODEX_DREAM_HOOK_COMMAND, statusMessage: "Maintaining OpenBrain memory" }
+      ]
+    });
+  }
+  if (cleanedSessionStart.length) {
+    hooks.SessionStart = cleanedSessionStart;
+  } else {
+    delete hooks.SessionStart;
   }
   settings.hooks = hooks;
   await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
@@ -253,11 +278,6 @@ export async function runUserPromptSubmitHook(
       !input.prompt.trim()
     ) {
       return undefined;
-    }
-    try {
-      await dreamMaybe({ ...options, cwd: input.cwd });
-    } catch {
-      // Daily maintenance is best-effort; retrieval must remain available.
     }
     const results = await searchMemories(input.prompt, {
       ...options,
@@ -491,11 +511,12 @@ Do not run OpenBrain dream or memory search manually. Store only durable guidanc
 ${OPENBRAIN_END}`;
 }
 
-export function codexManualGuide() {
-  return codexBlock();
+export async function codexManualGuide(options: OpenBrainOptions = {}) {
+  const config = await loadConfig(options);
+  return codexBlock(config.agents.codex.memoryMode === "hook");
 }
 
-function codexBlock() {
+function codexBlock(hookFirst = false) {
   return `${OPENBRAIN_BEGIN}
 ## OpenBrain Memory
 
@@ -517,14 +538,18 @@ ask the user which brain should own that workspace path, then run:
 openbrain brain add-path <brain> "<current workspace path>"
 \`\`\`
 
-Before starting a task, run daily maintenance, then search:
+${
+  hookFirst
+    ? "Daily maintenance and relevant durable-memory retrieval run automatically. Do not run OpenBrain dream or memory search manually."
+    : `Before starting a task, run daily maintenance, then search:
 
 \`\`\`bash
 openbrain dream maybe --quiet
 openbrain memory search "<short description of the user's current task>"
 \`\`\`
 
-Use only relevant returned memories.
+Use only relevant returned memories.`
+}
 
 After meaningful work, record useful observations. When an observation is
 evidence rather than an already-established durable conclusion, save it as a

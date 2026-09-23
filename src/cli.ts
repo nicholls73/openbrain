@@ -75,7 +75,7 @@ async function main(argv: string[]) {
   }
 
   if (area === "agents" && command === "guide" && rest[0] === "codex") {
-    console.log(codexManualGuide());
+    console.log(await codexManualGuide());
     return;
   }
 
@@ -87,12 +87,14 @@ async function main(argv: string[]) {
         if (memoryMode !== "hook" && memoryMode !== "manual") {
           throw new Error("--memory-mode must be hook or manual");
         }
+      }
+      const file = await syncCodexAgent({}, memoryMode);
+      if (memoryMode !== undefined) {
         await updateConfig((config) => {
           config.agents.codex.memoryMode = memoryMode;
         });
       }
-      const file = await syncCodexAgent();
-      const hookFirst = (await loadConfig()).agents.codex.memoryMode === "hook";
+      const hookFirst = (memoryMode ?? (await loadConfig()).agents.codex.memoryMode) === "hook";
       console.log(`Synced Codex adapter: ${file}`);
       console.log(
         hookFirst
