@@ -3,6 +3,7 @@
 export {
   CLAUDE_HOOK_COMMAND,
   CODEX_HOOK_COMMAND,
+  codexManualGuide,
   detectClaudeAgent,
   detectCodexAgent,
   OPENBRAIN_BEGIN,

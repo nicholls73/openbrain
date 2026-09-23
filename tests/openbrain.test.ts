@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { canonicalPathForRule } from "../src/brains.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, updateConfig } from "../src/config.js";
 import {
   isSqliteNodeAbiMismatch,
   openDatabase,
@@ -1726,7 +1726,7 @@ describe("OpenBrain local storage", () => {
 });
 
 describe("Codex adapter sync", () => {
-  test("frames memory as belonging to the active brain, not a repo or project", async () => {
+  test("uses a minimal hook-first instruction block", async () => {
     const home = await tempHome();
     const codexHome = path.join(home, ".codex");
     await initOpenBrain(options(home));
@@ -1734,30 +1734,10 @@ describe("Codex adapter sync", () => {
     await syncCodexAgent({ ...options(home), codexHome });
     const agentFile = await readFile(path.join(codexHome, "AGENTS.md"), "utf8");
 
-    expect(agentFile).toContain("OpenBrain uses the current workspace path only to choose the active brain.");
-    expect(agentFile).toContain("Treat that brain as the memory container.");
-    expect(agentFile).toContain("Refer to memory by brain name or");
-    expect(agentFile).toContain(
-      "active brain. Refer to paths only when configuring brain routing or discussing"
-    );
-    expect(agentFile).toContain('openbrain brain add-path <brain> "<current workspace path>"');
-    expect(agentFile).toContain('openbrain memory add --type workspace --text "..."');
-    expect(agentFile).toContain('openbrain memory add --type episode --confidence low --text "..."');
-    expect(agentFile).toContain("evidence rather than an already-established durable conclusion");
-    expect(agentFile).toContain("Record durable memories only when the guidance is likely to stay useful");
-    expect(agentFile).toContain("Do not store branch names, PR");
-    expect(agentFile).toContain("If short-lived handoff context is useful, store it as");
-    expect(agentFile).toContain("For POC or reference work, classify details before storing them.");
-    expect(agentFile).toContain("approve elevated filesystem access, then rerun the exact same command");
-    expect(agentFile).toContain("- `workspace`: stable workspace, toolchain, or recurring task conventions.");
-    expect(agentFile).toContain(
-      "- `episode`: short-lived session notes, handoff state, or fast-changing facts."
-    );
-    expect(agentFile).not.toContain("<current project path>");
-    expect(agentFile).not.toContain("repo or tooling conventions");
-    expect(agentFile).not.toContain("openbrain memory add --type project --text");
-    expect(agentFile).not.toMatch(/\brepo\b/i);
-    expect(agentFile).not.toMatch(/\bproject\b/i);
+    expect(agentFile).toContain("Relevant high-confidence durable memories are injected");
+    expect(agentFile).toContain("openbrain agents guide codex");
+    expect(agentFile).not.toContain("openbrain dream maybe --quiet");
+    expect(agentFile).not.toContain("openbrain memory search");
   });
 
   test("inserts and updates only the marked OpenBrain block", async () => {
@@ -1768,11 +1748,8 @@ describe("Codex adapter sync", () => {
     await syncCodexAgent({ ...options(home), codexHome });
     const first = await readFile(path.join(codexHome, "AGENTS.md"), "utf8");
     expect(first).toContain("BEGIN OPENBRAIN");
-    expect(first).toContain("openbrain dream maybe --quiet");
-    expect(first).toContain("openbrain memory search");
-    expect(first.indexOf("openbrain dream maybe --quiet")).toBeLessThan(
-      first.indexOf("openbrain memory search")
-    );
+    expect(first).not.toContain("openbrain dream maybe --quiet");
+    expect(first).not.toContain("openbrain memory search");
 
     await writeFile(
       path.join(codexHome, "AGENTS.md"),
@@ -1784,6 +1761,25 @@ describe("Codex adapter sync", () => {
 
     expect(second).toContain("Do not remove this.");
     expect(second.match(/BEGIN OPENBRAIN/g)).toHaveLength(1);
+  });
+
+  test("restores manual instructions and removes its hook in manual mode", async () => {
+    const home = await tempHome();
+    const codexHome = path.join(home, ".codex");
+    await initOpenBrain(options(home));
+    await updateConfig((config) => {
+      config.agents.codex.memoryMode = "manual";
+    }, options(home));
+
+    await syncCodexAgent({ ...options(home), codexHome });
+    const agentFile = await readFile(path.join(codexHome, "AGENTS.md"), "utf8");
+    const hooks = JSON.parse(await readFile(path.join(codexHome, "hooks.json"), "utf8")) as {
+      hooks: Record<string, unknown>;
+    };
+
+    expect(agentFile).toContain("openbrain dream maybe --quiet");
+    expect(agentFile).toContain("openbrain memory search");
+    expect(hooks.hooks.UserPromptSubmit).toBeUndefined();
   });
 
   test("preserves existing hooks and installs one prompt retrieval hook", async () => {
@@ -1907,6 +1903,17 @@ describe("Codex adapter sync", () => {
     expect(context).not.toContain("Private release checklist detail");
     expect(context).not.toContain("Episode release checklist evidence");
     expect(context).not.toContain(home);
+
+    await runUserPromptSubmitHook(
+      JSON.stringify({
+        hook_event_name: "UserPromptSubmit",
+        cwd: path.join(home, "workspace"),
+        prompt: "Please use the release checklist"
+      }),
+      options(home, embedder)
+    );
+    const dreams = await readdir(path.join(home, "brains", "main", "dreams"));
+    expect(dreams.filter((file) => file.endsWith("-dream.md"))).toHaveLength(1);
   });
 
   test("prompt retrieval fails open for malformed input and no match", async () => {

@@ -48,14 +48,21 @@ async function directoryExists(dir: string) {
 }
 
 export async function syncCodexAgent(options: OpenBrainOptions = {}) {
-  const file = await syncInstructionFile(codexHome(options), "AGENTS.md", options);
-  await syncCodexHooks(options);
+  const config = await loadConfig(options);
+  const hookFirst = config.agents.codex.memoryMode === "hook";
+  const file = await syncInstructionFile(
+    codexHome(options),
+    "AGENTS.md",
+    hookFirst ? codexMinimalBlock() : codexBlock(),
+    options
+  );
+  await syncCodexHooks(options, hookFirst);
   return file;
 }
 
 // Merge a point-of-use retrieval hook into Codex's global hooks without
 // replacing the user's other hook events or handlers.
-export async function syncCodexHooks(options: OpenBrainOptions = {}) {
+export async function syncCodexHooks(options: OpenBrainOptions = {}, enabled = true) {
   const file = codexHooksPath(options);
   await mkdir(path.dirname(file), { recursive: true });
 
@@ -91,17 +98,23 @@ export async function syncCodexHooks(options: OpenBrainOptions = {}) {
     })
     .filter((group) => !(isRecord(group) && Array.isArray(group.hooks) && group.hooks.length === 0));
 
-  cleaned.push({
-    hooks: [
-      {
-        type: "command",
-        command: CODEX_HOOK_COMMAND,
-        statusMessage: "Searching OpenBrain memory",
-        additionalContextLimit: 1000
-      }
-    ]
-  });
-  hooks.UserPromptSubmit = cleaned;
+  if (enabled) {
+    cleaned.push({
+      hooks: [
+        {
+          type: "command",
+          command: CODEX_HOOK_COMMAND,
+          statusMessage: "Searching OpenBrain memory",
+          additionalContextLimit: 1000
+        }
+      ]
+    });
+  }
+  if (cleaned.length) {
+    hooks.UserPromptSubmit = cleaned;
+  } else {
+    delete hooks.UserPromptSubmit;
+  }
   settings.hooks = hooks;
   await writeFile(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return file;
@@ -241,6 +254,11 @@ export async function runUserPromptSubmitHook(
     ) {
       return undefined;
     }
+    try {
+      await dreamMaybe({ ...options, cwd: input.cwd });
+    } catch {
+      // Daily maintenance is best-effort; retrieval must remain available.
+    }
     const results = await searchMemories(input.prompt, {
       ...options,
       cwd: input.cwd,
@@ -269,7 +287,7 @@ export async function runUserPromptSubmitHook(
 }
 
 export async function syncClaudeAgent(options: OpenBrainOptions = {}, disableAutoMemory = false) {
-  const file = await syncInstructionFile(claudeHome(options), "CLAUDE.md", options);
+  const file = await syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
   // The CLAUDE.md block is advisory only. Install a SessionStart hook so Claude
   // Code actually runs daily dreaming and is reminded to search memory on every
   // session, without relying on the agent to follow the instructions.
@@ -431,7 +449,12 @@ function unexpectedSettingsMessage(file: string, problem: string) {
   );
 }
 
-async function syncInstructionFile(dir: string, fileName: string, options: OpenBrainOptions = {}) {
+async function syncInstructionFile(
+  dir: string,
+  fileName: string,
+  block: string,
+  options: OpenBrainOptions = {}
+) {
   const config = await loadConfig(options);
   await initOpenBrain({ ...options, brain: config.brains.default });
   await mkdir(dir, { recursive: true });
@@ -445,7 +468,6 @@ async function syncInstructionFile(dir: string, fileName: string, options: OpenB
     }
   }
 
-  const block = codexBlock();
   const pattern = new RegExp(`${escapeRegExp(OPENBRAIN_BEGIN)}[\\s\\S]*?${escapeRegExp(OPENBRAIN_END)}`);
   const next = pattern.test(existing)
     ? existing.replace(pattern, block)
@@ -457,6 +479,20 @@ async function syncInstructionFile(dir: string, fileName: string, options: OpenB
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function codexMinimalBlock() {
+  return `${OPENBRAIN_BEGIN}
+## OpenBrain Memory
+
+OpenBrain is local, brain-routed memory. Relevant high-confidence durable memories are injected before each prompt; use only those that apply.
+
+Do not run OpenBrain dream or memory search manually. Store only durable guidance or short-lived evidence, never secrets or credentials. Before recording memory, reviewing promotion candidates, or troubleshooting OpenBrain, run \`openbrain agents guide codex\` for detailed guidance.
+${OPENBRAIN_END}`;
+}
+
+export function codexManualGuide() {
+  return codexBlock();
 }
 
 function codexBlock() {

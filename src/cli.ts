@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { renderCliError } from "./cli-error.js";
+import { loadConfig, updateConfig } from "./config.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
 import { runMcpServer } from "./mcp.js";
 import {
   addBrainPath,
   addMemory,
+  codexManualGuide,
   deleteMemory,
   detectClaudeAgent,
   dreamMaybe,
@@ -72,12 +74,31 @@ async function main(argv: string[]) {
     return;
   }
 
+  if (area === "agents" && command === "guide" && rest[0] === "codex") {
+    console.log(codexManualGuide());
+    return;
+  }
+
   if (area === "agents" && command === "sync") {
     const agent = rest[0];
     if (agent === "codex") {
+      const memoryMode = readOption(rest.slice(1), "--memory-mode");
+      if (memoryMode !== undefined) {
+        if (memoryMode !== "hook" && memoryMode !== "manual") {
+          throw new Error("--memory-mode must be hook or manual");
+        }
+        await updateConfig((config) => {
+          config.agents.codex.memoryMode = memoryMode;
+        });
+      }
       const file = await syncCodexAgent();
+      const hookFirst = (await loadConfig()).agents.codex.memoryMode === "hook";
       console.log(`Synced Codex adapter: ${file}`);
-      console.log(`Installed UserPromptSubmit hook: ${codexHooksPath()}`);
+      console.log(
+        hookFirst
+          ? `Installed UserPromptSubmit hook: ${codexHooksPath()}`
+          : "Removed OpenBrain UserPromptSubmit hook; agents manage retrieval manually."
+      );
       return;
     }
     if (agent === "claude") {
@@ -664,7 +685,9 @@ function usage() {
   openbrain update [--yes]
   openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no] [--disable-claude-auto-memory yes|no]
       (agent integrations are auto-detected; --codex/--claude override detection)
-  openbrain agents sync codex|claude [--disable-claude-auto-memory yes|no]
+  openbrain agents sync codex [--memory-mode hook|manual]
+  openbrain agents sync claude [--disable-claude-auto-memory yes|no]
+  openbrain agents guide codex
   openbrain dream maybe [--quiet]
   openbrain dream run [--quiet]
   openbrain hook session-start

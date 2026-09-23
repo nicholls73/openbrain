@@ -44,6 +44,7 @@ export interface OpenBrainConfig {
   agents: {
     codex: {
       enabled: boolean;
+      memoryMode: "hook" | "manual";
     };
     claude: {
       enabled: boolean;

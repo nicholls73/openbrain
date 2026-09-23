@@ -73,8 +73,15 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
 
   if (config.agents.codex.enabled) {
     checks.push(await adapterCheck("codex adapter", path.join(codexHome(options), "AGENTS.md"), "codex"));
-    const hook = await codexHookCheck(options);
-    checks.push(hook, codexEnforcementCheck(hook));
+    if (config.agents.codex.memoryMode === "manual") {
+      checks.push(
+        { status: "ok", name: "codex hook", detail: "manual mode: UserPromptSubmit retrieval is disabled" },
+        { status: "ok", name: "codex enforcement", detail: "manual mode: agents retrieve memory on demand" }
+      );
+    } else {
+      const hook = await codexHookCheck(options);
+      checks.push(hook, codexEnforcementCheck(hook));
+    }
   }
   if (config.agents.claude.enabled) {
     checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
