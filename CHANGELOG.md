@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/nicholls73/openbrain/compare/v0.9.0...v0.9.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* keep update confirmation prompt open ([#152](https://github.com/nicholls73/openbrain/issues/152)) ([380e725](https://github.com/nicholls73/openbrain/commit/380e725b2a13f684d787ffc8cee479e39596de03))
+
 ## [0.9.0](https://github.com/nicholls73/openbrain/compare/v0.8.2...v0.9.0) (2026-09-24)
 
 
