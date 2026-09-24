@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0](https://github.com/nicholls73/openbrain/compare/v0.8.2...v0.9.0) (2026-09-24)
+
+
+### Features
+
+* make Codex memory retrieval hook-first ([#150](https://github.com/nicholls73/openbrain/issues/150)) ([ba966c9](https://github.com/nicholls73/openbrain/commit/ba966c98213caaf85a6028886c3a501824be492b))
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @biomejs/biome from 2.5.11 to 2.5.14 ([#147](https://github.com/nicholls73/openbrain/issues/147)) ([9a127f8](https://github.com/nicholls73/openbrain/commit/9a127f8415eaa6df7ff6fc552c9dc25a067250b0))
+* **deps-dev:** bump @types/node from 26.4.1 to 26.6.2 ([#145](https://github.com/nicholls73/openbrain/issues/145)) ([e7e599d](https://github.com/nicholls73/openbrain/commit/e7e599d78415b32993056db8073555aefba86382))
+* **deps-dev:** bump vitest from 4.1.11 to 5.0.1 ([#148](https://github.com/nicholls73/openbrain/issues/148)) ([b3e0b75](https://github.com/nicholls73/openbrain/commit/b3e0b751886cd69fd258e9c3da2ffc6c10ef019f))
+* **deps:** bump @huggingface/transformers from 4.2.0 to 4.3.0 ([#146](https://github.com/nicholls73/openbrain/issues/146)) ([de8990a](https://github.com/nicholls73/openbrain/commit/de8990a260051cee05fe44b502c65354ecc82328))
+* **deps:** bump zod from 4.5.4 to 4.6.5 ([#144](https://github.com/nicholls73/openbrain/issues/144)) ([b1b871a](https://github.com/nicholls73/openbrain/commit/b1b871a9590690bf7a1cda5b34f7ca5ceb560c4f))
+
 ## [0.8.2](https://github.com/nicholls73/openbrain/compare/v0.8.1...v0.8.2) (2026-09-05)
 
 
