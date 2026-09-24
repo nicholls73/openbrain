@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { updateConfig } from "../src/config.js";
 import type { DoctorCheck, DoctorReport } from "../src/doctor.js";
 import { renderDoctorReport, runDoctor } from "../src/doctor.js";
 import { addMemory, initOpenBrain, setupOpenBrain } from "../src/openbrain.js";
@@ -62,6 +63,31 @@ async function writeCodexHookState(
 }
 
 describe("openbrain doctor", () => {
+  test("warns when manual mode retains the Codex retrieval hook", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      disabled: true,
+      async embed() {
+        return null;
+      }
+    };
+    await setupOpenBrain(
+      { brainScope: "default", syncCodex: true, syncClaude: false },
+      options(home, embedder)
+    );
+    await updateConfig(
+      (config) => {
+        config.agents.codex.memoryMode = "manual";
+      },
+      options(home, embedder)
+    );
+
+    const report = await runDoctor({ ...options(home, embedder), fetch: offlineFetch });
+
+    expect(check(report, "codex hook")).toMatchObject({ status: "warn" });
+    expect(check(report, "codex enforcement")).toMatchObject({ status: "warn" });
+  });
+
   test("reports a healthy setup with no failures", async () => {
     const home = await tempHome();
     const embedder: EmbeddingProvider = {

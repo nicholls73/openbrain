@@ -2,7 +2,9 @@
 // New code should import from the specific module instead.
 export {
   CLAUDE_HOOK_COMMAND,
+  CODEX_DREAM_HOOK_COMMAND,
   CODEX_HOOK_COMMAND,
+  codexManualGuide,
   detectClaudeAgent,
   detectCodexAgent,
   OPENBRAIN_BEGIN,

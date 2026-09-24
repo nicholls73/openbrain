@@ -70,8 +70,9 @@ Only proceed if your user explicitly asked you to install OpenBrain.
 - If embeddings fail or are slow, FTS still returns results.
 - Memories stay readable as Markdown.
 - Brain routing can keep different contexts separate by filesystem path.
-- Agents quietly trigger `openbrain dream maybe --quiet` so each brain can run maintenance once per day.
-- The current adapters sync a marked OpenBrain block into `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`. Codex also gets a `UserPromptSubmit` hook that injects up to three relevant, high-confidence durable memories before each prompt; review and trust this user-installed hook with `/hooks` in Codex. Claude Code gets a `SessionStart` hook that dreams and reminds the agent to search memory.
+- Codex runs daily maintenance and injects up to three relevant, high-confidence durable memories from its `UserPromptSubmit` hook; review and trust this user-installed hook with `/hooks` in Codex.
+- The Codex instruction block stays short by default. Use `openbrain agents sync codex --memory-mode manual` to restore agent-managed search and the detailed instructions.
+- Claude Code gets a `SessionStart` hook that dreams and reminds the agent to search memory.
 - Episodes can be marked as promotion candidates or discovered from recurring evidence; `dream` writes review files but does not create durable memory automatically.
 
 ## Fallback Installer

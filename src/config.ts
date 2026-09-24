@@ -29,7 +29,8 @@ export const DEFAULT_CONFIG: OpenBrainConfig = {
   },
   agents: {
     codex: {
-      enabled: true
+      enabled: true,
+      memoryMode: "hook"
     },
     claude: {
       enabled: true
