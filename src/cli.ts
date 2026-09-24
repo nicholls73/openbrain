@@ -712,7 +712,7 @@ function usage() {
   openbrain prune`);
 }
 
-main(process.argv.slice(2)).catch((error: unknown) => {
+await main(process.argv.slice(2)).catch((error: unknown) => {
   console.error(renderCliError(error));
   process.exitCode = 1;
 });
