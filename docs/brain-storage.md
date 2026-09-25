@@ -1,6 +1,6 @@
 # Brain storage
 
-Each brain can use local storage or live entirely inside an existing Obsidian vault. Local storage is the default and needs no configuration.
+Each brain can use local storage, Obsidian Sync, or an existing local Obsidian vault. Local storage is the default and needs no configuration.
 
 Show the current mode and location:
 
@@ -8,7 +8,31 @@ Show the current mode and location:
 openbrain brain storage main
 ```
 
-Move the complete brain into a vault:
+## Obsidian Sync
+
+Install [Obsidian Headless](https://help.obsidian.md/sync/headless) and make sure your account has an active Obsidian Sync subscription:
+
+```bash
+npm install -g obsidian-headless
+```
+
+Connect a brain:
+
+```bash
+openbrain brain storage main obsidian
+```
+
+OpenBrain asks Obsidian Headless to log in when needed. It reuses the remote vault named `brain`, or creates it when missing, then performs an initial sync. The local vault lives at `~/.openbrain/vaults/brain` unless Obsidian Headless already configured that remote vault elsewhere.
+
+The Markdown brain data is synchronized. The rebuildable SQLite search index stays local at `~/.openbrain/indexes/<brain>/openbrain.db` so a live database is never synchronized.
+
+The command prints the `ob sync --continuous` command for ongoing synchronization. Do not run Obsidian desktop Sync and Headless Sync for the same vault on one computer; Obsidian warns that this can cause conflicts.
+
+If both local and remote storage already contain different data for the same brain, OpenBrain stops without merging or deleting either copy.
+
+## Existing local vault
+
+Move the complete brain into a vault without configuring Obsidian Sync:
 
 ```bash
 openbrain brain storage main obsidian --vault "/path/to/My Vault"
@@ -40,7 +64,7 @@ Markdown edited in Obsidian becomes searchable after:
 openbrain index rebuild
 ```
 
-Obsidian storage currently supports one computer. Do not synchronize and use the same vault brain on another computer: a live SQLite database cannot be made safe by waiting for file synchronization. Multi-device vault support requires a separate per-device index design.
+Local-vault mode does not configure synchronization. Its SQLite index remains inside the vault, so do not synchronize that vault between computers. Account-based Headless Sync mode keeps its index outside the vault.
 
 If a move is interrupted before the configuration changes, the verified source remains authoritative. Remove the incomplete destination shown by the error, then run the command again. If the configuration already points to the destination, verify it with `openbrain doctor` before removing the old directory.
 

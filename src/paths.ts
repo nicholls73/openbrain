@@ -43,7 +43,11 @@ export function updateCheckPath(options: OpenBrainOptions = {}) {
 }
 
 export function dbPath(options: OpenBrainOptions = {}) {
-  return path.join(brainHome(options), "openbrain.db");
+  return options.databasePath ?? path.join(brainHome(options), "openbrain.db");
+}
+
+export function localIndexPath(brain: string, options: OpenBrainOptions = {}) {
+  return path.join(openBrainHome(options), "indexes", brain, "openbrain.db");
 }
 
 export function memoriesDir(options: OpenBrainOptions = {}) {

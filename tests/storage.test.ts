@@ -108,6 +108,29 @@ describe("per-brain storage", () => {
     await expect(readFile(path.join(destination, "keep.txt"), "utf8")).resolves.toBe("do not delete");
   });
 
+  test("attaches an empty local brain to existing Headless Sync data", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const destination = path.join(await realpath(vault), "OpenBrain", "brains", "main");
+    await mkdir(path.join(vault, ".obsidian"));
+    const memory = await addMemory(
+      { type: "decision", text: "Reuse the existing remote brain." },
+      { home, brainRoot: destination, embedder: noEmbeddings }
+    );
+
+    const result = await setBrainStorage(
+      "main",
+      { type: "obsidian", vaultPath: vault, sync: "headless" },
+      { home, embedder: noEmbeddings }
+    );
+
+    expect(result.path).toBe(destination);
+    expect((await searchMemories("existing remote", { home, embedder: noEmbeddings }))[0]?.id).toBe(
+      memory.id
+    );
+    await expect(stat(path.join(home, "indexes", "main", "openbrain.db"))).resolves.toBeDefined();
+  });
+
   test("rejects overlapping storage through a symlinked home", async () => {
     const physicalHome = await tempRoot();
     const aliasParent = await tempRoot();

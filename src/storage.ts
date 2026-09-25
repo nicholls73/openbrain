@@ -5,7 +5,7 @@ import { canonicalPathForRule, sanitizeBrainName } from "./brains.js";
 import { loadConfig, updateConfig } from "./config.js";
 import { prepareOpenBrain, resolveBrainRoot } from "./internal.js";
 import { rebuildIndex } from "./maintenance.js";
-import { brainHome } from "./paths.js";
+import { brainHome, localIndexPath } from "./paths.js";
 import type { BrainStorage, OpenBrainOptions } from "./types.js";
 import { isBrainWriteLocked, withBrainWriteLock } from "./write-lock.js";
 
@@ -61,11 +61,34 @@ export async function setBrainStorage(
       return { brain: name, storage, path: destination, moved: false, sourceRemoved: true };
     }
     rejectOverlappingPaths(await canonicalPath(source), await canonicalPath(destination));
+    const before = await treeManifest(source);
     if (await exists(destination)) {
-      throw new Error(`Storage destination already exists: ${destination}`);
+      if (storage.type !== "obsidian" || storage.sync !== "headless") {
+        throw new Error(`Storage destination already exists: ${destination}`);
+      }
+      const existing = await treeManifest(destination);
+      if (before.length > 0 && JSON.stringify(before) !== JSON.stringify(existing)) {
+        throw new Error(
+          `Both local and Obsidian storage contain data for brain ${name}; refusing to merge them automatically`
+        );
+      }
+      await rebaseDreamState(source, destination);
+      await rebuildIndex({
+        ...options,
+        brain: name,
+        brainRoot: destination,
+        databasePath: localIndexPath(name, options)
+      });
+      await saveStorage(name, previous, storage, options);
+      let sourceRemoved = true;
+      try {
+        await rm(source, { recursive: true });
+      } catch {
+        sourceRemoved = false;
+      }
+      return { brain: name, storage, path: destination, moved: true, sourceRemoved };
     }
 
-    const before = await treeManifest(source);
     await mkdir(path.dirname(destination), { recursive: true });
     staging = path.join(
       path.dirname(destination),
@@ -83,7 +106,13 @@ export async function setBrainStorage(
     await rename(staging, destination);
     staging = undefined;
     await rebaseDreamState(source, destination);
-    await rebuildIndex({ ...options, brain: name, brainRoot: destination });
+    await rebuildIndex({
+      ...options,
+      brain: name,
+      brainRoot: destination,
+      databasePath:
+        storage.type === "obsidian" && storage.sync === "headless" ? localIndexPath(name, options) : undefined
+    });
     if (JSON.stringify(before) !== JSON.stringify(await treeManifest(source))) {
       throw new Error("Brain changed while it was being moved; retry after active agents finish");
     }
@@ -115,7 +144,7 @@ async function normalizeStorage(storage: BrainStorage): Promise<BrainStorage> {
   if (!(await stat(path.join(vaultPath, ".obsidian")).catch(() => undefined))?.isDirectory()) {
     throw new Error(`Not an Obsidian vault (missing .obsidian): ${vaultPath}`);
   }
-  return { type: "obsidian", vaultPath };
+  return { type: "obsidian", vaultPath, ...(storage.sync ? { sync: storage.sync } : {}) };
 }
 
 async function saveStorage(
