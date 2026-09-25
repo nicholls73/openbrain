@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -129,6 +129,45 @@ describe("per-brain storage", () => {
       memory.id
     );
     await expect(stat(path.join(home, "indexes", "main", "openbrain.db"))).resolves.toBeDefined();
+  });
+
+  test("keeps the source when it changes during an existing-vault index rebuild", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const source = path.join(home, "brains", "main");
+    const destination = path.join(await realpath(vault), "OpenBrain", "brains", "main");
+    await mkdir(path.join(vault, ".obsidian"));
+    await addMemory(
+      { type: "decision", text: "Do not lose concurrent writes." },
+      { home, embedder: noEmbeddings }
+    );
+    await mkdir(path.dirname(destination), { recursive: true });
+    await cp(source, destination, { recursive: true });
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => (markStarted = resolve));
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        markStarted();
+        await blocked;
+        return null;
+      }
+    };
+
+    const migration = setBrainStorage(
+      "main",
+      { type: "obsidian", vaultPath: vault, sync: "headless" },
+      { home, embedder }
+    );
+    await started;
+    const concurrentFile = path.join(source, "dreams", "concurrent.txt");
+    await writeFile(concurrentFile, "keep me", "utf8");
+    release();
+
+    await expect(migration).rejects.toThrow("Brain changed while it was being moved");
+    await expect(readFile(concurrentFile, "utf8")).resolves.toBe("keep me");
+    expect((await getBrainStorage("main", { home })).storage).toEqual({ type: "local" });
   });
 
   test("rejects overlapping storage through a symlinked home", async () => {

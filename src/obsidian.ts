@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { openBrainHome } from "./paths.js";
 import { type BrainStorageResult, setBrainStorage } from "./storage.js";
@@ -49,14 +49,19 @@ export async function connectObsidianSync(
   const configured = locals.find((vault) => vault.id === remote.id);
   const defaultPath = path.join(openBrainHome(options), "vaults", VAULT_NAME);
   const vaultPath = path.resolve(configured?.path ?? defaultPath);
-  const pathConflict = locals.find(
-    (vault) => vault.id !== remote.id && path.resolve(vault.path) === vaultPath
+  await mkdir(path.join(vaultPath, ".obsidian"), { recursive: true });
+  const physicalVaultPath = await realpath(vaultPath);
+  const localPaths = await Promise.all(
+    locals.map(async (vault) => ({
+      ...vault,
+      path: await realpath(vault.path).catch(() => path.resolve(vault.path))
+    }))
   );
+  const pathConflict = localPaths.find((vault) => vault.id !== remote.id && vault.path === physicalVaultPath);
   if (pathConflict) {
     throw new Error(`Obsidian Headless already uses ${vaultPath} for another remote vault`);
   }
 
-  await mkdir(path.join(vaultPath, ".obsidian"), { recursive: true });
   if (!configured) {
     checked(run, ["sync-setup", "--vault", remote.id, "--path", vaultPath]);
   }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -73,8 +73,20 @@ test("fails when the account has ambiguous brain vaults", async () => {
   expect(fake.calls).toEqual([["login"], ["sync-list-remote", "--json"]]);
 });
 
+test("rejects another remote configured through a symlink to the brain vault", async () => {
+  const home = await tempRoot();
+  const vault = path.join(home, "vaults", "brain");
+  const alias = path.join(home, "brain-alias");
+  await mkdir(vault, { recursive: true });
+  await symlink(vault, alias, "dir");
+  const fake = fakeObsidian({ remoteExists: true, localPath: alias, localId: "other-remote" });
+
+  await expect(connectObsidianSync("main", { home }, fake.run)).rejects.toThrow("already uses");
+  expect(fake.calls.some(([command]) => command === "sync-setup")).toBe(false);
+});
+
 function fakeObsidian(
-  options: { remoteExists?: boolean; duplicateRemote?: boolean; localPath?: string } = {}
+  options: { remoteExists?: boolean; duplicateRemote?: boolean; localPath?: string; localId?: string } = {}
 ) {
   const calls: string[][] = [];
   let remoteExists = options.remoteExists ?? false;
@@ -108,7 +120,7 @@ function fakeObsidian(
           status: 0,
           stdout: JSON.stringify({
             vaults: options.localPath
-              ? [{ id: "remote-brain", path: options.localPath, host: "sync.example" }]
+              ? [{ id: options.localId ?? "remote-brain", path: options.localPath, host: "sync.example" }]
               : []
           })
         };

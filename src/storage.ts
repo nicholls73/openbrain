@@ -79,6 +79,9 @@ export async function setBrainStorage(
         brainRoot: destination,
         databasePath: localIndexPath(name, options)
       });
+      if (JSON.stringify(before) !== JSON.stringify(await treeManifest(source))) {
+        throw new Error("Brain changed while it was being moved; retry after active agents finish");
+      }
       await saveStorage(name, previous, storage, options);
       let sourceRemoved = true;
       try {
