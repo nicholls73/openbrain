@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import { cp, lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalPathForRule, sanitizeBrainName } from "./brains.js";
 import { loadConfig, updateConfig } from "./config.js";
 import { prepareOpenBrain, resolveBrainRoot } from "./internal.js";
 import { rebuildIndex } from "./maintenance.js";
-import { brainHome, storageLockPath } from "./paths.js";
+import { brainHome } from "./paths.js";
 import type { BrainStorage, OpenBrainOptions } from "./types.js";
+import { isBrainWriteLocked, withBrainWriteLock } from "./write-lock.js";
 
 export interface BrainStorageResult {
   brain: string;
@@ -33,8 +34,11 @@ export async function setBrainStorage(
 ): Promise<BrainStorageResult> {
   const name = sanitizeBrainName(brain);
   const storage = await normalizeStorage(requested);
-  const lock = storageLockPath(name, options);
-  await acquireStorageLock(lock, name);
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock({ ...options, brain: name }, (locked) =>
+      setBrainStorage(name, storage, locked)
+    );
+  }
 
   let destination: string | undefined;
   let staging: string | undefined;
@@ -56,7 +60,7 @@ export async function setBrainStorage(
       await saveStorage(name, previous, storage, options);
       return { brain: name, storage, path: destination, moved: false, sourceRemoved: true };
     }
-    rejectOverlappingPaths(source, destination);
+    rejectOverlappingPaths(await canonicalPath(source), await canonicalPath(destination));
     if (await exists(destination)) {
       throw new Error(`Storage destination already exists: ${destination}`);
     }
@@ -70,7 +74,7 @@ export async function setBrainStorage(
     await cp(source, staging, {
       recursive: true,
       preserveTimestamps: true,
-      filter: (file) => !isTransient(file)
+      filter: (file) => !isTransient(source, file)
     });
     if (JSON.stringify(before) !== JSON.stringify(await treeManifest(staging))) {
       throw new Error("Brain changed while it was being copied; retry after active agents finish");
@@ -97,40 +101,6 @@ export async function setBrainStorage(
       await rm(staging, { recursive: true, force: true }).catch(() => {});
     }
     throw error;
-  } finally {
-    await rm(lock, { force: true });
-  }
-}
-
-async function acquireStorageLock(lock: string, brain: string) {
-  await mkdir(path.dirname(lock), { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const handle = await open(lock, "wx");
-      await handle.writeFile(`${process.pid}\n`, "utf8");
-      await handle.close();
-      return;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
-      const owner = Number((await readFile(lock, "utf8").catch(() => "")).trim());
-      const age = Date.now() - (await stat(lock)).mtimeMs;
-      if ((owner && processIsRunning(owner)) || (!owner && age < 60_000)) {
-        throw new Error(`Storage migration already in progress for brain ${brain}`);
-      }
-      await rm(lock, { force: true });
-    }
-  }
-  throw new Error(`Could not acquire storage migration lock for brain ${brain}`);
-}
-
-function processIsRunning(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
 
@@ -198,7 +168,7 @@ async function treeManifest(root: string) {
   async function visit(dir: string) {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const file = path.join(dir, entry.name);
-      if (isTransient(file)) {
+      if (isTransient(root, file)) {
         continue;
       }
       const details = await lstat(file);
@@ -219,9 +189,33 @@ async function treeManifest(root: string) {
   return files.sort(([left], [right]) => left.localeCompare(right));
 }
 
-function isTransient(file: string) {
-  const name = path.basename(file);
-  return name === "openbrain.db" || name.startsWith("openbrain.db-") || name === ".lock";
+function isTransient(root: string, file: string) {
+  const relative = path.relative(root, file);
+  return (
+    relative === "openbrain.db" ||
+    relative.startsWith("openbrain.db-") ||
+    relative === path.join("dreams", ".lock")
+  );
+}
+
+async function canonicalPath(value: string): Promise<string> {
+  const missing: string[] = [];
+  let current = value;
+  while (true) {
+    try {
+      return path.join(await realpath(current), ...missing.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        throw error;
+      }
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
 }
 
 async function exists(file: string) {

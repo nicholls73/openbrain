@@ -33,8 +33,12 @@ import type {
   OpenBrainOptions,
   PendingReview
 } from "./types.js";
+import { isBrainWriteLocked, withBrainWriteLock } from "./write-lock.js";
 
-export async function rebuildIndex(options: OpenBrainOptions = {}) {
+export async function rebuildIndex(options: OpenBrainOptions = {}): Promise<void> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, rebuildIndex);
+  }
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
 
   // Reuse stored embeddings for memories whose title and body are unchanged,
@@ -105,7 +109,10 @@ export async function rebuildIndex(options: OpenBrainOptions = {}) {
   }
 }
 
-export async function pruneEpisodes(options: OpenBrainOptions = {}) {
+export async function pruneEpisodes(options: OpenBrainOptions = {}): Promise<string[]> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, pruneEpisodes);
+  }
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
   const now = options.now?.() ?? new Date();
   const pruned: string[] = [];
@@ -149,6 +156,9 @@ async function episodeExpired(filePath: string, retentionDays: number, now: Date
 }
 
 export async function dreamMaybe(options: OpenBrainOptions = {}): Promise<DreamResult> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, dreamMaybe);
+  }
   const { options: scopedOptions, resolution } = await prepareOpenBrain(options);
   const now = options.now?.() ?? new Date();
   const date = localDateString(now);
@@ -177,6 +187,9 @@ export async function dreamMaybe(options: OpenBrainOptions = {}): Promise<DreamR
 }
 
 export async function dreamRun(options: OpenBrainOptions = {}): Promise<DreamResult> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, dreamRun);
+  }
   const { options: scopedOptions, resolution } = await prepareOpenBrain(options);
   const now = options.now?.() ?? new Date();
   return runDreamWithLock(scopedOptions, resolution.brain, now, () =>
@@ -193,7 +206,7 @@ const LEGACY_EMPTY_MARKERS = ["No promotion candidates.", "No likely duplicates.
 // "openbrain review done" moves them into dreams/actioned. Presence is the
 // only state, so the queue survives crashes and stays inspectable as files.
 export async function listPendingReviews(options: OpenBrainOptions = {}): Promise<PendingReview[]> {
-  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const { options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
   const dir = dreamsDir(scopedOptions);
   let entries: Dirent[];
   try {
@@ -221,7 +234,10 @@ export async function listPendingReviews(options: OpenBrainOptions = {}): Promis
   return pending;
 }
 
-export async function markReviewDone(file: string, options: OpenBrainOptions = {}) {
+export async function markReviewDone(file: string, options: OpenBrainOptions = {}): Promise<string> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, (locked) => markReviewDone(file, locked));
+  }
   const { options: scopedOptions } = await prepareOpenBrain(options);
   const base = path.basename(file);
   if (!REVIEW_FILE_PATTERN.test(base)) {

@@ -13,13 +13,17 @@ import type {
   OpenBrainConfig,
   OpenBrainOptions
 } from "./types.js";
+import { isBrainWriteLocked, withBrainWriteLock } from "./write-lock.js";
 
 // New durable memories at or above this cosine similarity to an existing
 // memory of the same type are flagged as likely duplicates. The memory is
 // still written; the notice nudges the caller towards memory update instead.
 export const DUPLICATE_SIMILARITY = 0.9;
 
-export async function initOpenBrain(options: OpenBrainOptions = {}) {
+export async function initOpenBrain(options: OpenBrainOptions = {}): Promise<void> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, initOpenBrain);
+  }
   const { options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
   db.close();
@@ -66,7 +70,7 @@ export async function prepareOpenBrain(
   }
   if (
     !behavior.readonly &&
-    !options.brainRoot &&
+    !isBrainWriteLocked(options) &&
     (await stat(storageLockPath(resolution.brain, options)).catch(() => undefined))
   ) {
     throw new Error(`Storage migration in progress for brain ${resolution.brain}`);

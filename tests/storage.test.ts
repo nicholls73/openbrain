@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -51,12 +51,14 @@ describe("per-brain storage", () => {
     );
     const source = path.join(home, "brains", "main");
     await writeFile(path.join(source, "dreams", "attachment.txt"), "kept", "utf8");
+    await writeFile(path.join(source, "memories", ".lock"), "user data", "utf8");
 
     const moved = await setBrainStorage("main", { type: "obsidian", vaultPath: vault }, options);
 
     expect(moved.path).toBe(path.join(await realpath(vault), "OpenBrain", "brains", "main"));
     await expect(stat(source)).rejects.toThrow();
     await expect(readFile(path.join(moved.path, "dreams", "attachment.txt"), "utf8")).resolves.toBe("kept");
+    await expect(readFile(path.join(moved.path, "memories", ".lock"), "utf8")).resolves.toBe("user data");
     expect((await searchMemories("complete brain", options))[0]?.id).toBe(memory.id);
     const db = await openDatabase({ ...options, brainRoot: moved.path }, { readonly: true });
     try {
@@ -98,6 +100,56 @@ describe("per-brain storage", () => {
       "destination already exists"
     );
     await expect(readFile(path.join(destination, "keep.txt"), "utf8")).resolves.toBe("do not delete");
+  });
+
+  test("rejects overlapping storage through a symlinked home", async () => {
+    const physicalHome = await tempRoot();
+    const aliasParent = await tempRoot();
+    const home = path.join(aliasParent, "home");
+    const vault = path.join(physicalHome, "brains", "main", "vault");
+    await symlink(physicalHome, home, "dir");
+    await mkdir(path.join(vault, ".obsidian"), { recursive: true });
+
+    await expect(setBrainStorage("main", { type: "obsidian", vaultPath: vault }, { home })).rejects.toThrow(
+      "must not overlap"
+    );
+  });
+
+  test("waits for an in-progress brain write before migrating", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    await mkdir(path.join(vault, ".obsidian"));
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => (markStarted = resolve));
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        markStarted();
+        await blocked;
+        return null;
+      }
+    };
+    const write = addMemory(
+      { type: "decision", text: "finish this write" },
+      { home, brainRoot: path.join(home, "brains", "main"), embedder }
+    );
+    await started;
+
+    let migrated = false;
+    const migration = setBrainStorage("main", { type: "obsidian", vaultPath: vault }, { home }).then(
+      (result) => {
+        migrated = true;
+        return result;
+      }
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(migrated).toBe(false);
+    release();
+    await write;
+    await migration;
+
+    expect((await getBrainStorage("main", { home })).storage.type).toBe("obsidian");
   });
 
   test("recovers an orphaned migration lock", async () => {
