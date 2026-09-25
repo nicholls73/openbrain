@@ -65,7 +65,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   const activeBrain = await brainCheck(checks, options);
   if (activeBrain) {
     try {
-      const scoped = await prepareOpenBrain({ ...options, brain: activeBrain });
+      const scoped = await prepareOpenBrain({ ...options, brain: activeBrain }, { readonly: true });
       await databaseCheck(checks, scoped.options);
       await dreamCheck(checks, scoped.options);
       await stalenessCheck(checks, scoped.options);

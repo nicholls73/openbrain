@@ -4,7 +4,13 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { loadConfig } from "../src/config.js";
 import { openDatabase } from "../src/db.js";
-import { addMemory, getBrainStorage, searchMemories, setBrainStorage } from "../src/openbrain.js";
+import {
+  addMemory,
+  getBrainStatus,
+  getBrainStorage,
+  searchMemories,
+  setBrainStorage
+} from "../src/openbrain.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
 
 const roots: string[] = [];
@@ -158,6 +164,7 @@ describe("per-brain storage", () => {
     await mkdir(path.dirname(lock), { recursive: true });
     await writeFile(lock, "999999999\n", "utf8");
 
+    await expect(getBrainStatus({ home })).resolves.toEqual({ brain: "main", state: "active" });
     const result = await setBrainStorage("main", { type: "local" }, { home });
 
     expect(result.moved).toBe(false);

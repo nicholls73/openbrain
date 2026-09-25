@@ -30,7 +30,7 @@ export async function initOpenBrain(options: OpenBrainOptions = {}): Promise<voi
 }
 
 export async function getBrainStatus(options: OpenBrainOptions = {}): Promise<BrainStatus> {
-  const { resolution } = await prepareOpenBrain(options, { allowUnavailable: true });
+  const { resolution } = await prepareOpenBrain(options, { allowUnavailable: true, readonly: true });
   if (resolution.enabled) {
     return { brain: resolution.brain, state: "active" };
   }
