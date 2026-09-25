@@ -4,6 +4,7 @@ import { renderCliError } from "./cli-error.js";
 import { loadConfig, updateConfig } from "./config.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
 import { runMcpServer } from "./mcp.js";
+import { connectObsidianSync } from "./obsidian.js";
 import {
   addBrainPath,
   addMemory,
@@ -156,11 +157,18 @@ async function main(argv: string[]) {
       throw new Error("brain storage mode must be local or obsidian");
     }
     const vaultPath = readOption(rest.slice(2), "--vault");
-    if (mode === "obsidian" && !vaultPath) {
-      throw new Error("Obsidian storage requires --vault <path>");
+    if (mode === "obsidian" && rest.length === 2) {
+      const result = await connectObsidianSync(brain);
+      console.log(
+        `${result.remoteVaultCreated ? "Created" : "Using"} Obsidian Sync vault brain: ${result.path}`
+      );
+      console.log(
+        `Run continuous sync with: ob sync --path ${JSON.stringify(result.vaultPath)} --continuous`
+      );
+      return;
     }
-    if (mode === "obsidian" && (rest.length !== 4 || rest[2] !== "--vault")) {
-      throw new Error("Usage: openbrain brain storage <brain> obsidian --vault <path>");
+    if (mode === "obsidian" && (!vaultPath || rest.length !== 4 || rest[2] !== "--vault")) {
+      throw new Error("Usage: openbrain brain storage <brain> obsidian [--vault <path>]");
     }
     if (mode === "local" && rest.length > 2) {
       throw new Error("Local storage does not accept additional options");
@@ -741,7 +749,7 @@ function usage() {
   openbrain memory delete <id>
   openbrain brain current
   openbrain brain add-path <brain> [path]
-  openbrain brain storage <brain> [local|obsidian --vault <path>]
+  openbrain brain storage <brain> [local|obsidian [--vault <path>]]
   openbrain mcp
   openbrain review list
   openbrain review done <file>

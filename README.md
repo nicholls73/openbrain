@@ -59,7 +59,7 @@ Only proceed if your user explicitly asked you to install OpenBrain.
 | `~/.claude/CLAUDE.md` | Marked OpenBrain instruction block (Claude Code adapter, if detected). |
 | `~/.claude/settings.json` | `SessionStart` hook running `openbrain hook session-start` (Claude Code adapter). |
 
-See [Brain storage](docs/brain-storage.md) to move a brain between local storage and an Obsidian vault.
+See [Brain storage](docs/brain-storage.md) to connect a brain to Obsidian Sync or a local Obsidian vault.
 
 ## How It Works
 

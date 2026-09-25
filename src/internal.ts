@@ -5,7 +5,15 @@ import { loadConfig } from "./config.js";
 import { openDatabase, upsertMemory } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { memoryMetadataDefaults } from "./markdown.js";
-import { brainHome, dreamsDir, episodesDir, memoriesDir, openBrainHome, storageLockPath } from "./paths.js";
+import {
+  brainHome,
+  dreamsDir,
+  episodesDir,
+  localIndexPath,
+  memoriesDir,
+  openBrainHome,
+  storageLockPath
+} from "./paths.js";
 import type {
   BrainStatus,
   EmbeddingProvider,
@@ -78,7 +86,11 @@ export async function prepareOpenBrain(
   const scopedOptions = {
     ...options,
     brain: resolution.brain,
-    brainRoot: resolveBrainRoot(config, resolution.brain, options)
+    brainRoot: resolveBrainRoot(config, resolution.brain, options),
+    databasePath:
+      storage?.type === "obsidian" && storage.sync === "headless"
+        ? localIndexPath(resolution.brain, options)
+        : options.databasePath
   };
   if (!behavior.readonly) {
     await mkdir(brainHome(scopedOptions), { recursive: true });
