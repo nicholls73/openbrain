@@ -78,7 +78,7 @@ export async function createMcpServer() {
         sensitivity: z
           .enum(["standard", "private"])
           .optional()
-          .describe("private memories are local-only, never embedded, and need includePrivate to search"),
+          .describe("private memories are never embedded and need includePrivate to search"),
         promoteAs: durableMemoryType
           .optional()
           .describe("For episodes: mark for later review as this durable type")

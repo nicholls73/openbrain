@@ -11,7 +11,11 @@ export function brainName(options: OpenBrainOptions = {}) {
 }
 
 export function brainHome(options: OpenBrainOptions = {}) {
-  return path.join(openBrainHome(options), "brains", brainName(options));
+  return options.brainRoot ?? path.join(openBrainHome(options), "brains", brainName(options));
+}
+
+export function storageLockPath(brain: string, options: OpenBrainOptions = {}) {
+  return path.join(openBrainHome(options), "locks", `${brain}.storage`);
 }
 
 export function codexHome(options: OpenBrainOptions = {}) {

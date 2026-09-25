@@ -1,11 +1,11 @@
 import { mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { BrainUnavailableError, resolveBrain } from "./brains.js";
+import { BrainUnavailableError, canonicalPathForRule, resolveBrain } from "./brains.js";
 import { loadConfig } from "./config.js";
 import { openDatabase, upsertMemory } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { memoryMetadataDefaults } from "./markdown.js";
-import { brainHome, dreamsDir, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
+import { brainHome, dreamsDir, episodesDir, memoriesDir, openBrainHome, storageLockPath } from "./paths.js";
 import type {
   BrainStatus,
   EmbeddingProvider,
@@ -13,20 +13,24 @@ import type {
   OpenBrainConfig,
   OpenBrainOptions
 } from "./types.js";
+import { isBrainWriteLocked, withBrainWriteLock } from "./write-lock.js";
 
 // New durable memories at or above this cosine similarity to an existing
 // memory of the same type are flagged as likely duplicates. The memory is
 // still written; the notice nudges the caller towards memory update instead.
 export const DUPLICATE_SIMILARITY = 0.9;
 
-export async function initOpenBrain(options: OpenBrainOptions = {}) {
+export async function initOpenBrain(options: OpenBrainOptions = {}): Promise<void> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, initOpenBrain);
+  }
   const { options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
   db.close();
 }
 
 export async function getBrainStatus(options: OpenBrainOptions = {}): Promise<BrainStatus> {
-  const { resolution } = await prepareOpenBrain(options, { allowUnavailable: true });
+  const { resolution } = await prepareOpenBrain(options, { allowUnavailable: true, readonly: true });
   if (resolution.enabled) {
     return { brain: resolution.brain, state: "active" };
   }
@@ -55,9 +59,26 @@ export async function prepareOpenBrain(
   if (!resolution.enabled && !behavior.allowUnavailable) {
     throw new BrainUnavailableError(resolution);
   }
+  const storage = config.brains.storage[resolution.brain];
+  if (
+    storage?.type === "obsidian" &&
+    !(
+      await stat(path.join(canonicalPathForRule(storage.vaultPath), ".obsidian")).catch(() => undefined)
+    )?.isDirectory()
+  ) {
+    throw new Error(`Obsidian vault is unavailable: ${canonicalPathForRule(storage.vaultPath)}`);
+  }
+  if (
+    !behavior.readonly &&
+    !isBrainWriteLocked(options) &&
+    (await stat(storageLockPath(resolution.brain, options)).catch(() => undefined))
+  ) {
+    throw new Error(`Storage migration in progress for brain ${resolution.brain}`);
+  }
   const scopedOptions = {
     ...options,
-    brain: resolution.brain
+    brain: resolution.brain,
+    brainRoot: resolveBrainRoot(config, resolution.brain, options)
   };
   if (!behavior.readonly) {
     await mkdir(brainHome(scopedOptions), { recursive: true });
@@ -66,6 +87,20 @@ export async function prepareOpenBrain(
     await mkdir(dreamsDir(scopedOptions), { recursive: true });
   }
   return { config, options: scopedOptions, resolution };
+}
+
+export function resolveBrainRoot(config: OpenBrainConfig, brain: string, options: OpenBrainOptions = {}) {
+  if (options.brainRoot) {
+    return options.brainRoot;
+  }
+  const storage = config.brains.storage[brain];
+  if (storage?.type === "obsidian") {
+    return path.join(canonicalPathForRule(storage.vaultPath), "OpenBrain", "brains", brain);
+  }
+  if (storage && storage.type !== "local") {
+    throw new Error(`Unsupported storage type for brain ${brain}`);
+  }
+  return path.join(openBrainHome(options), "brains", brain);
 }
 
 export interface IndexEntry {

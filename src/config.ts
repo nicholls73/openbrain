@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: OpenBrainConfig = {
   brains: {
     default: "main",
     unmatched: "default",
+    storage: {},
     pathRules: []
   },
   embeddings: {
@@ -119,12 +120,23 @@ function delay(ms: number) {
 
 function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
   const defaults = defaultConfig();
+  const storage = raw.brains?.storage ?? defaults.brains.storage;
+  for (const [brain, value] of Object.entries(storage)) {
+    if (
+      !value ||
+      (value.type !== "local" &&
+        (value.type !== "obsidian" || typeof value.vaultPath !== "string" || !value.vaultPath.trim()))
+    ) {
+      throw new Error(`Invalid storage configuration for brain ${brain}`);
+    }
+  }
   return {
     ...defaults,
     ...raw,
     brains: {
       ...defaults.brains,
       ...raw.brains,
+      storage,
       pathRules: raw.brains?.pathRules ?? defaults.brains.pathRules
     },
     embeddings: {
@@ -155,6 +167,7 @@ function defaultConfig(): OpenBrainConfig {
     ...DEFAULT_CONFIG,
     brains: {
       ...DEFAULT_CONFIG.brains,
+      storage: { ...DEFAULT_CONFIG.brains.storage },
       pathRules: [...DEFAULT_CONFIG.brains.pathRules]
     },
     embeddings: {

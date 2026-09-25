@@ -33,11 +33,15 @@ import type {
   StoredMemoryType,
   UpdateMemoryInput
 } from "./types.js";
+import { isBrainWriteLocked, withBrainWriteLock } from "./write-lock.js";
 
 export async function addMemory(
   input: AddMemoryInput,
   options: OpenBrainOptions = {}
 ): Promise<AddMemoryResult> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, (locked) => addMemory(input, locked));
+  }
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
   const now = options.now?.() ?? new Date();
   const title = titleFromText(input.text);
@@ -101,6 +105,9 @@ export async function updateMemory(
   input: UpdateMemoryInput,
   options: OpenBrainOptions = {}
 ): Promise<MemoryRecord> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, (locked) => updateMemory(input, locked));
+  }
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
   let row: IndexedMemoryRow;
@@ -142,7 +149,13 @@ export async function updateMemory(
 
 // Fold one durable memory into another: the target gets the merged text, the
 // source is deleted. Meant for acting on the dream consolidation report.
-export async function mergeMemory(input: MergeMemoryInput, options: OpenBrainOptions = {}) {
+export async function mergeMemory(
+  input: MergeMemoryInput,
+  options: OpenBrainOptions = {}
+): Promise<MemoryRecord> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, (locked) => mergeMemory(input, locked));
+  }
   if (input.sourceId === input.targetId) {
     throw new Error("memory merge requires two different memory ids");
   }
@@ -163,7 +176,13 @@ export async function mergeMemory(input: MergeMemoryInput, options: OpenBrainOpt
   return updated;
 }
 
-export async function promoteMemory(input: PromoteMemoryInput, options: OpenBrainOptions = {}) {
+export async function promoteMemory(
+  input: PromoteMemoryInput,
+  options: OpenBrainOptions = {}
+): Promise<AddMemoryResult> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, (locked) => promoteMemory(input, locked));
+  }
   const { options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
   let episode: IndexedMemoryRow;
@@ -218,7 +237,10 @@ export async function showMemory(id: string, options: OpenBrainOptions = {}) {
   }
 }
 
-export async function deleteMemory(id: string, options: OpenBrainOptions = {}) {
+export async function deleteMemory(id: string, options: OpenBrainOptions = {}): Promise<void> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, (locked) => deleteMemory(id, locked));
+  }
   const { options: scopedOptions } = await prepareOpenBrain(options);
   const db = await openDatabase(scopedOptions);
   try {

@@ -34,3 +34,4 @@ export {
 } from "./memories.js";
 export { searchMemories } from "./search.js";
 export { addBrainPath, setupOpenBrain } from "./setup.js";
+export { getBrainStorage, setBrainStorage } from "./storage.js";
