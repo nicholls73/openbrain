@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/nicholls73/openbrain/compare/v0.9.1...v0.10.0) (2026-09-25)
+
+
+### Features
+
+* add account-based Obsidian Sync storage ([#156](https://github.com/nicholls73/openbrain/issues/156)) ([df801e9](https://github.com/nicholls73/openbrain/commit/df801e9e3b1674daa480fe9fee39a9f41586829e))
+* add per-brain Obsidian storage ([#154](https://github.com/nicholls73/openbrain/issues/154)) ([d6d50c6](https://github.com/nicholls73/openbrain/commit/d6d50c6607b1a8c977da4d77fbce98e1d2c6298a))
+
 ## [0.9.1](https://github.com/nicholls73/openbrain/compare/v0.9.0...v0.9.1) (2026-09-24)
 
 
