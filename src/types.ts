@@ -8,6 +8,8 @@ export type StoredMemoryType = (typeof STORED_MEMORY_TYPES)[number];
 export type MemoryConfidence = "low" | "medium" | "high";
 export type MemorySensitivity = "standard" | "private";
 
+export type BrainStorage = { type: "local" } | { type: "obsidian"; vaultPath: string };
+
 export interface MemoryMetadata {
   source: string;
   scope: string;
@@ -25,6 +27,7 @@ export interface OpenBrainConfig {
   brains: {
     default: string;
     unmatched: "default" | "disabled" | "ask";
+    storage: Record<string, BrainStorage>;
     pathRules: Array<{
       brain: string;
       paths: string[];
@@ -73,6 +76,7 @@ export interface BrainStatus {
 
 export interface OpenBrainOptions {
   home?: string;
+  brainRoot?: string;
   codexHome?: string;
   claudeHome?: string;
   brain?: string;

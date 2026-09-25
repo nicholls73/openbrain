@@ -52,15 +52,14 @@ Only proceed if your user explicitly asked you to install OpenBrain.
 | Path | Purpose |
 | --- | --- |
 | `~/.openbrain/config.json` | Brain routing, retention, agent, and retrieval settings. |
-| `~/.openbrain/brains/<name>/memories/` | Durable Markdown memories. |
-| `~/.openbrain/brains/<name>/episodes/` | Short-lived Markdown session notes. |
-| `~/.openbrain/brains/<name>/dreams/` | Daily maintenance state, audit logs, and promotion candidates. |
-| `~/.openbrain/brains/<name>/openbrain.db` | Rebuildable SQLite FTS/vector index. |
+| `~/.openbrain/brains/<name>/` | Complete local brain: memories, episodes, dreams, and its rebuildable SQLite index. A brain can instead live in an Obsidian vault. |
 | `~/.openbrain/models/` | Local embedding model cache. |
 | `~/.codex/AGENTS.md` | Marked OpenBrain instruction block (Codex adapter, if detected). |
 | `~/.codex/hooks.json` | `UserPromptSubmit` hook retrieving relevant durable memory (Codex adapter). |
 | `~/.claude/CLAUDE.md` | Marked OpenBrain instruction block (Claude Code adapter, if detected). |
 | `~/.claude/settings.json` | `SessionStart` hook running `openbrain hook session-start` (Claude Code adapter). |
+
+See [Brain storage](docs/brain-storage.md) to move a brain between local storage and an Obsidian vault.
 
 ## How It Works
 

@@ -12,6 +12,7 @@ import {
   detectClaudeAgent,
   dreamMaybe,
   dreamRun,
+  getBrainStorage,
   getCurrentBrain,
   initOpenBrain,
   listMemories,
@@ -24,6 +25,7 @@ import {
   runSessionStartHook,
   runUserPromptSubmitHook,
   searchMemories,
+  setBrainStorage,
   setupOpenBrain,
   showMemory,
   syncClaudeAgent,
@@ -136,6 +138,41 @@ async function main(argv: string[]) {
     }
     const result = await addBrainPath(brain, targetPath);
     console.log(`Added path rule: ${result.brain}\t${result.path}`);
+    return;
+  }
+
+  if (area === "brain" && command === "storage") {
+    const brain = rest[0];
+    const mode = rest[1];
+    if (!brain) {
+      throw new Error("brain storage requires a brain name");
+    }
+    if (!mode) {
+      const result = await getBrainStorage(brain);
+      console.log(`${result.brain}\t${result.storage.type}\t${result.path}`);
+      return;
+    }
+    if (mode !== "local" && mode !== "obsidian") {
+      throw new Error("brain storage mode must be local or obsidian");
+    }
+    const vaultPath = readOption(rest.slice(2), "--vault");
+    if (mode === "obsidian" && !vaultPath) {
+      throw new Error("Obsidian storage requires --vault <path>");
+    }
+    if (mode === "obsidian" && (rest.length !== 4 || rest[2] !== "--vault")) {
+      throw new Error("Usage: openbrain brain storage <brain> obsidian --vault <path>");
+    }
+    if (mode === "local" && rest.length > 2) {
+      throw new Error("Local storage does not accept additional options");
+    }
+    const result = await setBrainStorage(
+      brain,
+      mode === "local" ? { type: "local" } : { type: "obsidian", vaultPath: vaultPath! }
+    );
+    console.log(`${result.moved ? "Moved" : "Using"} brain ${result.brain}: ${result.path}`);
+    if (!result.sourceRemoved) {
+      console.warn("OpenBrain could not remove the previous brain directory; remove it manually.");
+    }
     return;
   }
 
@@ -704,6 +741,7 @@ function usage() {
   openbrain memory delete <id>
   openbrain brain current
   openbrain brain add-path <brain> [path]
+  openbrain brain storage <brain> [local|obsidian --vault <path>]
   openbrain mcp
   openbrain review list
   openbrain review done <file>

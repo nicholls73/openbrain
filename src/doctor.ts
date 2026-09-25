@@ -6,6 +6,7 @@ import { claudeSettingsShapeProblem, codexHooksShapeProblem } from "./adapters.j
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
+import { prepareOpenBrain } from "./internal.js";
 import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
 import {
   CLAUDE_HOOK_COMMAND,
@@ -63,11 +64,16 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
 
   const activeBrain = await brainCheck(checks, options);
   if (activeBrain) {
-    await databaseCheck(checks, { ...options, brain: activeBrain });
-    await dreamCheck(checks, { ...options, brain: activeBrain });
-    await stalenessCheck(checks, { ...options, brain: activeBrain });
-    await reviewBacklogCheck(checks, { ...options, brain: activeBrain });
-    await duplicateCheck(checks, { ...options, brain: activeBrain });
+    try {
+      const scoped = await prepareOpenBrain({ ...options, brain: activeBrain });
+      await databaseCheck(checks, scoped.options);
+      await dreamCheck(checks, scoped.options);
+      await stalenessCheck(checks, scoped.options);
+      await reviewBacklogCheck(checks, scoped.options);
+      await duplicateCheck(checks, scoped.options);
+    } catch (error) {
+      checks.push({ status: "fail", name: "storage", detail: message(error) });
+    }
   }
   await embeddingsCheck(checks, config, options);
 

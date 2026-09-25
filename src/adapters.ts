@@ -594,7 +594,7 @@ Use memory types this way:
 Use metadata only when it materially helps retrieval or review:
 - \`--scope <value>\`: narrow retrieval scope.
 - \`--confidence low|medium|high\`: confidence in the stored statement.
-- \`--sensitivity private\`: local-only memory that requires explicit search opt-in and is never embedded.
+- \`--sensitivity private\`: memory that requires explicit search opt-in and is never embedded. It still follows the brain's configured storage location.
 - \`--promote-as <durable-type>\`: marks an episode for later review.
 
 Dream writes promotion candidate review files for episodes marked with

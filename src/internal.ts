@@ -1,11 +1,11 @@
 import { mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { BrainUnavailableError, resolveBrain } from "./brains.js";
+import { BrainUnavailableError, canonicalPathForRule, resolveBrain } from "./brains.js";
 import { loadConfig } from "./config.js";
 import { openDatabase, upsertMemory } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { memoryMetadataDefaults } from "./markdown.js";
-import { brainHome, dreamsDir, episodesDir, memoriesDir, openBrainHome } from "./paths.js";
+import { brainHome, dreamsDir, episodesDir, memoriesDir, openBrainHome, storageLockPath } from "./paths.js";
 import type {
   BrainStatus,
   EmbeddingProvider,
@@ -55,9 +55,26 @@ export async function prepareOpenBrain(
   if (!resolution.enabled && !behavior.allowUnavailable) {
     throw new BrainUnavailableError(resolution);
   }
+  const storage = config.brains.storage[resolution.brain];
+  if (
+    storage?.type === "obsidian" &&
+    !(
+      await stat(path.join(canonicalPathForRule(storage.vaultPath), ".obsidian")).catch(() => undefined)
+    )?.isDirectory()
+  ) {
+    throw new Error(`Obsidian vault is unavailable: ${canonicalPathForRule(storage.vaultPath)}`);
+  }
+  if (
+    !behavior.readonly &&
+    !options.brainRoot &&
+    (await stat(storageLockPath(resolution.brain, options)).catch(() => undefined))
+  ) {
+    throw new Error(`Storage migration in progress for brain ${resolution.brain}`);
+  }
   const scopedOptions = {
     ...options,
-    brain: resolution.brain
+    brain: resolution.brain,
+    brainRoot: resolveBrainRoot(config, resolution.brain, options)
   };
   if (!behavior.readonly) {
     await mkdir(brainHome(scopedOptions), { recursive: true });
@@ -66,6 +83,20 @@ export async function prepareOpenBrain(
     await mkdir(dreamsDir(scopedOptions), { recursive: true });
   }
   return { config, options: scopedOptions, resolution };
+}
+
+export function resolveBrainRoot(config: OpenBrainConfig, brain: string, options: OpenBrainOptions = {}) {
+  if (options.brainRoot) {
+    return options.brainRoot;
+  }
+  const storage = config.brains.storage[brain];
+  if (storage?.type === "obsidian") {
+    return path.join(canonicalPathForRule(storage.vaultPath), "OpenBrain", "brains", brain);
+  }
+  if (storage && storage.type !== "local") {
+    throw new Error(`Unsupported storage type for brain ${brain}`);
+  }
+  return path.join(openBrainHome(options), "brains", brain);
 }
 
 export interface IndexEntry {
