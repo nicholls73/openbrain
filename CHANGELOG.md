@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/nicholls73/openbrain/compare/v0.10.0...v0.11.0) (2026-09-29)
+
+
+### Features
+
+* manage Obsidian Sync in background ([#157](https://github.com/nicholls73/openbrain/issues/157)) ([add264b](https://github.com/nicholls73/openbrain/commit/add264bd7ef90b836283208a18338ac171feeb0d))
+
 ## [0.10.0](https://github.com/nicholls73/openbrain/compare/v0.9.1...v0.10.0) (2026-09-25)
 
 
