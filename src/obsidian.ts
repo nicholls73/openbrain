@@ -7,7 +7,7 @@ import {
   obsidianSyncServiceManager
 } from "./obsidian-service.js";
 import { openBrainHome } from "./paths.js";
-import { type BrainStorageResult, setBrainStorage } from "./storage.js";
+import { type BrainStorageResult, getBrainStorage, setBrainStorage } from "./storage.js";
 import type { OpenBrainOptions } from "./types.js";
 
 const VAULT_NAME = "brain";
@@ -27,11 +27,13 @@ export interface ObsidianSyncResult extends BrainStorageResult {
   service: ObsidianSyncServiceStatus;
 }
 
+/** Connect the remote brain vault, migrate storage, and resume background Sync. */
 export async function connectObsidianSync(
   brain: string,
   options: OpenBrainOptions = {},
   run: ObsidianRunner = runObsidian,
-  serviceManager: ObsidianSyncServiceManager = obsidianSyncServiceManager
+  serviceManager: ObsidianSyncServiceManager = obsidianSyncServiceManager,
+  layout?: "root"
 ): Promise<ObsidianSyncResult> {
   checked(run, ["login"]);
 
@@ -79,7 +81,19 @@ export async function connectObsidianSync(
   let storage: BrainStorageResult;
   try {
     checked(run, ["sync", "--path", vaultPath]);
-    storage = await setBrainStorage(brain, { type: "obsidian", vaultPath, sync: "headless" }, options);
+    const previous = await getBrainStorage(brain, options);
+    const previousLayout =
+      layout ?? (previous.storage.type === "obsidian" ? previous.storage.layout : undefined);
+    storage = await setBrainStorage(
+      brain,
+      {
+        type: "obsidian",
+        vaultPath,
+        sync: "headless",
+        ...(previousLayout ? { layout: previousLayout } : {})
+      },
+      options
+    );
   } catch (error) {
     if (previousService.state === "running") {
       await serviceManager.start(vaultPath, options).catch(() => {});

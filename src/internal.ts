@@ -1,4 +1,4 @@
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { lstat, mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { BrainUnavailableError, canonicalPathForRule, resolveBrain } from "./brains.js";
 import { loadConfig } from "./config.js";
@@ -52,6 +52,7 @@ export async function getCurrentBrain(options: OpenBrainOptions = {}) {
   return status.state === "active" ? status.brain : `${status.state}:${status.brain}`;
 }
 
+/** Resolve a brain's storage paths and prepare its writable directories. */
 export async function prepareOpenBrain(
   options: OpenBrainOptions = {},
   behavior: { allowUnavailable?: boolean; readonly?: boolean } = {}
@@ -76,6 +77,9 @@ export async function prepareOpenBrain(
   ) {
     throw new Error(`Obsidian vault is unavailable: ${canonicalPathForRule(storage.vaultPath)}`);
   }
+  if (storage?.type === "obsidian" && storage.layout === "root") {
+    await validateRootBrainDirectories(canonicalPathForRule(storage.vaultPath));
+  }
   if (
     !behavior.readonly &&
     !isBrainWriteLocked(options) &&
@@ -88,9 +92,10 @@ export async function prepareOpenBrain(
     brain: resolution.brain,
     brainRoot: resolveBrainRoot(config, resolution.brain, options),
     databasePath:
-      storage?.type === "obsidian" && storage.sync === "headless"
+      options.databasePath ??
+      (storage?.type === "obsidian" && (storage.sync === "headless" || storage.layout === "root")
         ? localIndexPath(resolution.brain, options)
-        : options.databasePath
+        : undefined)
   };
   if (!behavior.readonly) {
     await mkdir(brainHome(scopedOptions), { recursive: true });
@@ -101,12 +106,32 @@ export async function prepareOpenBrain(
   return { config, options: scopedOptions, resolution };
 }
 
+/** Reject unsafe entries where root-layout brain folders will be read or written. */
+async function validateRootBrainDirectories(root: string) {
+  for (const name of ["memories", "episodes", "dreams"]) {
+    const directory = path.join(root, name);
+    const details = await lstat(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        return undefined;
+      }
+      throw error;
+    });
+    if (details?.isSymbolicLink() || (details && !details.isDirectory())) {
+      throw new Error(`Brain storage contains an unsupported file: ${directory}`);
+    }
+  }
+}
+
+/** Resolve the directory that contains a brain's managed Markdown data. */
 export function resolveBrainRoot(config: OpenBrainConfig, brain: string, options: OpenBrainOptions = {}) {
   if (options.brainRoot) {
     return options.brainRoot;
   }
   const storage = config.brains.storage[brain];
   if (storage?.type === "obsidian") {
+    if (storage.layout === "root") {
+      return canonicalPathForRule(storage.vaultPath);
+    }
     return path.join(canonicalPathForRule(storage.vaultPath), "OpenBrain", "brains", brain);
   }
   if (storage && storage.type !== "local") {

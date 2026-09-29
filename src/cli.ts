@@ -55,6 +55,7 @@ import {
   type UpdatePlan
 } from "./update.js";
 
+/** Dispatch one parsed CLI invocation to its command handler. */
 async function main(argv: string[]) {
   const [area, command, ...rest] = argv;
 
@@ -158,9 +159,20 @@ async function main(argv: string[]) {
     if (mode !== "local" && mode !== "obsidian") {
       throw new Error("brain storage mode must be local or obsidian");
     }
-    const vaultPath = readOption(rest.slice(2), "--vault");
-    if (mode === "obsidian" && rest.length === 2) {
-      const result = await connectObsidianSync(brain);
+    const storageArgs = rest.slice(2);
+    const vaultPath = readOption(storageArgs, "--vault");
+    const rootLayout = storageArgs.includes("--root");
+    if (
+      mode === "obsidian" &&
+      (storageArgs.length === 0 || (storageArgs.length === 1 && storageArgs[0] === "--root"))
+    ) {
+      const result = await connectObsidianSync(
+        brain,
+        {},
+        undefined,
+        undefined,
+        rootLayout ? "root" : undefined
+      );
       console.log(
         `${result.remoteVaultCreated ? "Created" : "Using"} Obsidian Sync vault brain: ${result.path}`
       );
@@ -174,15 +186,23 @@ async function main(argv: string[]) {
       }
       return;
     }
-    if (mode === "obsidian" && (!vaultPath || rest.length !== 4 || rest[2] !== "--vault")) {
-      throw new Error("Usage: openbrain brain storage <brain> obsidian [--vault <path>]");
+    if (
+      mode === "obsidian" &&
+      (!vaultPath ||
+        storageArgs.filter((arg) => arg === "--root").length > 1 ||
+        (storageArgs.length !== 2 && !(storageArgs.length === 3 && storageArgs.includes("--root"))) ||
+        storageArgs[0] !== "--vault")
+    ) {
+      throw new Error("Usage: openbrain brain storage <brain> obsidian [--vault <path>] [--root]");
     }
     if (mode === "local" && rest.length > 2) {
       throw new Error("Local storage does not accept additional options");
     }
     const result = await setBrainStorageWithService(
       brain,
-      mode === "local" ? { type: "local" } : { type: "obsidian", vaultPath: vaultPath! }
+      mode === "local"
+        ? { type: "local" }
+        : { type: "obsidian", vaultPath: vaultPath!, ...(rootLayout ? { layout: "root" as const } : {}) }
     );
     console.log(`${result.moved ? "Moved" : "Using"} brain ${result.brain}: ${result.path}`);
     if (!result.sourceRemoved) {
@@ -788,6 +808,7 @@ async function setBrainStorageWithService(brain: string, storage: BrainStorage) 
   }
 }
 
+/** Print the supported commands and their accepted arguments. */
 function usage() {
   console.log(`Usage:
   openbrain version
@@ -814,7 +835,7 @@ function usage() {
   openbrain memory delete <id>
   openbrain brain current
   openbrain brain add-path <brain> [path]
-  openbrain brain storage <brain> [local|obsidian [--vault <path>]]
+  openbrain brain storage <brain> [local|obsidian [--vault <path>] [--root]]
   openbrain brain sync <brain> <start|status|stop>
   openbrain mcp
   openbrain review list

@@ -58,6 +58,61 @@ test("creates and connects the brain Sync vault", async () => {
   await expect(stat(path.join(vault, "OpenBrain", "brains", "main", "openbrain.db"))).rejects.toThrow();
 });
 
+test("puts the brain at the top level of its Sync vault when requested", async () => {
+  const home = await tempRoot();
+  await addMemory(
+    { type: "decision", text: "Make this the root of the Obsidian vault." },
+    { home, embedder: noEmbeddings }
+  );
+  const fake = fakeObsidian();
+  const service = fakeService();
+
+  const result = await connectObsidianSync(
+    "main",
+    { home, embedder: noEmbeddings },
+    fake.run,
+    service.manager,
+    "root"
+  );
+
+  const vault = path.join(home, "vaults", "brain");
+  expect(result.path).toBe(await realpath(vault));
+  expect((await loadConfig({ home })).brains.storage.main).toMatchObject({
+    type: "obsidian",
+    vaultPath: await realpath(vault),
+    sync: "headless",
+    layout: "root"
+  });
+  await expect(stat(path.join(vault, "memories"))).resolves.toBeDefined();
+  await expect(stat(path.join(vault, "OpenBrain"))).rejects.toThrow();
+  await expect(stat(path.join(home, "indexes", "main", "openbrain.db"))).resolves.toBeDefined();
+});
+
+test("keeps root layout when reconnecting to an existing Sync vault", async () => {
+  const home = await tempRoot();
+  const vault = path.join(home, "vaults", "brain");
+  await mkdir(path.join(vault, ".obsidian"), { recursive: true });
+  const first = fakeObsidian({ remoteExists: true, localPath: vault });
+  await addMemory(
+    { type: "decision", text: "Keep the existing root layout." },
+    { home, embedder: noEmbeddings }
+  );
+  await connectObsidianSync(
+    "main",
+    { home, embedder: noEmbeddings },
+    first.run,
+    fakeService().manager,
+    "root"
+  );
+
+  const second = fakeObsidian({ remoteExists: true, localPath: vault });
+  await connectObsidianSync("main", { home, embedder: noEmbeddings }, second.run, fakeService().manager);
+
+  expect((await loadConfig({ home })).brains.storage.main).toMatchObject({ layout: "root" });
+  await expect(stat(path.join(vault, "memories"))).resolves.toBeDefined();
+  await expect(stat(path.join(vault, "OpenBrain"))).rejects.toThrow();
+});
+
 test("reuses the existing remote and local brain vault", async () => {
   const home = await tempRoot();
   const vault = path.join(home, "existing-brain-vault");

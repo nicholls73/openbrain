@@ -1,5 +1,17 @@
 import { createHash } from "node:crypto";
-import { cp, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  writeFile
+} from "node:fs/promises";
 import path from "node:path";
 import { canonicalPathForRule, sanitizeBrainName } from "./brains.js";
 import { loadConfig, updateConfig } from "./config.js";
@@ -27,6 +39,7 @@ export async function getBrainStorage(
   return { brain: name, storage, path: resolveBrainRoot(config, name, options) };
 }
 
+/** Move a brain between local and Obsidian storage without merging conflicting data. */
 export async function setBrainStorage(
   brain: string,
   requested: BrainStorage,
@@ -59,6 +72,13 @@ export async function setBrainStorage(
     if (source === destination) {
       await saveStorage(name, previous, storage, options);
       return { brain: name, storage, path: destination, moved: false, sourceRemoved: true };
+    }
+    if (
+      (previous.type === "obsidian" && previous.layout === "root") ||
+      (storage.type === "obsidian" && storage.layout === "root")
+    ) {
+      assertRootVaultAvailable(name, storage, config);
+      return migrateRootLayout(name, source, destination, previous, storage, options);
     }
     rejectOverlappingPaths(await canonicalPath(source), await canonicalPath(destination));
     const before = await treeManifest(source);
@@ -136,6 +156,7 @@ export async function setBrainStorage(
   }
 }
 
+/** Canonicalize and validate an Obsidian vault before changing storage. */
 async function normalizeStorage(storage: BrainStorage): Promise<BrainStorage> {
   if (storage.type === "local") {
     return storage;
@@ -147,9 +168,245 @@ async function normalizeStorage(storage: BrainStorage): Promise<BrainStorage> {
   if (!(await stat(path.join(vaultPath, ".obsidian")).catch(() => undefined))?.isDirectory()) {
     throw new Error(`Not an Obsidian vault (missing .obsidian): ${vaultPath}`);
   }
-  return { type: "obsidian", vaultPath, ...(storage.sync ? { sync: storage.sync } : {}) };
+  return {
+    type: "obsidian",
+    vaultPath,
+    ...(storage.sync ? { sync: storage.sync } : {}),
+    ...(storage.layout ? { layout: storage.layout } : {})
+  };
 }
 
+const managedBrainDirectories = ["memories", "episodes", "dreams"] as const;
+
+/** Move only managed brain folders while preserving the rest of an Obsidian vault. */
+async function migrateRootLayout(
+  brain: string,
+  source: string,
+  destination: string,
+  previous: BrainStorage,
+  storage: BrainStorage,
+  options: OpenBrainOptions
+): Promise<BrainStorageResult> {
+  const sourceState = await managedBrainState(source);
+  const destinationState = await managedBrainState(destination);
+  for (const directory of managedBrainDirectories) {
+    if (
+      destinationState[directory].exists &&
+      sourceState[directory].exists &&
+      !sameManifest(destinationState[directory].manifest, sourceState[directory].manifest)
+    ) {
+      throw new Error(
+        `Obsidian vault already contains different ${directory} data; refusing to merge it automatically`
+      );
+    }
+  }
+
+  const destinationInfo = await lstat(destination).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  });
+  if (destinationInfo?.isSymbolicLink() || (destinationInfo && !destinationInfo.isDirectory())) {
+    throw new Error(`Storage destination is not a directory: ${destination}`);
+  }
+  const destinationExisted = Boolean(destinationInfo);
+  await mkdir(path.dirname(destination), { recursive: true });
+  const stage = path.join(
+    path.dirname(destination),
+    `.${path.basename(destination)}.openbrain-migration-${process.pid}-${Date.now()}`
+  );
+  const installed: Array<(typeof managedBrainDirectories)[number]> = [];
+  let saved = false;
+  let stageCreated = false;
+  let destinationCreated = false;
+  try {
+    await mkdir(stage, { recursive: false });
+    stageCreated = true;
+    if (!destinationExisted) {
+      await mkdir(destination);
+      destinationCreated = true;
+    }
+    for (const directory of managedBrainDirectories) {
+      if (!sourceState[directory].exists || destinationState[directory].exists) {
+        continue;
+      }
+      await cp(path.join(source, directory), path.join(stage, directory), {
+        recursive: true,
+        preserveTimestamps: true,
+        filter: (file) => !isTransient(source, file)
+      });
+      const staged = await managedBrainState(stage);
+      if (!sameManifest(staged[directory].manifest, sourceState[directory].manifest)) {
+        throw new Error(
+          `Brain changed while ${directory} was being copied; retry after active agents finish`
+        );
+      }
+    }
+    if (!sameManagedBrainState(sourceState, await managedBrainState(source))) {
+      throw new Error("Brain changed while it was being moved; retry after active agents finish");
+    }
+    for (const directory of managedBrainDirectories) {
+      if (sourceState[directory].exists && !destinationState[directory].exists) {
+        await rename(path.join(stage, directory), path.join(destination, directory));
+        installed.push(directory);
+      }
+    }
+    if (!sameManagedBrainContent(sourceState, await managedBrainState(destination))) {
+      throw new Error("Brain changed while it was being moved; retry after active agents finish");
+    }
+    await rebaseDreamState(source, destination);
+    const migratedState = await managedBrainState(destination);
+
+    const databasePath =
+      storage.type === "obsidian" && (storage.sync === "headless" || storage.layout === "root")
+        ? localIndexPath(brain, options)
+        : path.join(destination, "openbrain.db");
+    await rebuildIndex({ ...options, brain, brainRoot: destination, databasePath });
+    if (
+      !sameManagedBrainState(sourceState, await managedBrainState(source)) ||
+      !sameManagedBrainState(migratedState, await managedBrainState(destination))
+    ) {
+      throw new Error("Brain changed while it was being moved; retry after active agents finish");
+    }
+    await saveStorage(brain, previous, storage, options);
+    saved = true;
+  } catch (error) {
+    if (!saved) {
+      const retained: string[] = [];
+      const current = await managedBrainState(destination).catch(() => undefined);
+      for (const directory of installed) {
+        if (current && sameManifest(current[directory].manifest, sourceState[directory].manifest)) {
+          await rm(path.join(destination, directory), { recursive: true, force: true });
+        } else {
+          retained.push(path.join(destination, directory));
+        }
+      }
+      if (destinationCreated && !retained.length) {
+        await rmdir(destination).catch(() => {});
+      }
+      if (retained.length) {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}; rollback left changed data at ${retained.join(", ")}`,
+          { cause: error }
+        );
+      }
+    }
+    throw error;
+  } finally {
+    if (stageCreated) {
+      await rm(stage, { recursive: true, force: true });
+    }
+  }
+
+  const sourceRemoved = await removeManagedSource(source, previous);
+  return { brain, storage, path: destination, moved: true, sourceRemoved };
+}
+
+/** Snapshot which managed folders exist and the files they contain. */
+async function managedBrainState(root: string) {
+  const entries = {} as Record<
+    (typeof managedBrainDirectories)[number],
+    { exists: boolean; manifest: Array<[string, string]> }
+  >;
+  for (const directory of managedBrainDirectories) {
+    const directoryPath = path.join(root, directory);
+    const details = await lstat(directoryPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        return undefined;
+      }
+      throw error;
+    });
+    if (details?.isSymbolicLink() || (details && !details.isDirectory())) {
+      throw new Error(`Brain storage contains an unsupported file: ${directoryPath}`);
+    }
+    entries[directory] = {
+      exists: Boolean(details),
+      manifest: details ? await treeManifest(directoryPath, directory) : []
+    };
+  }
+  return entries;
+}
+
+/** Compare sorted file-path and content-digest manifests. */
+function sameManifest(left: Array<[string, string]>, right: Array<[string, string]>) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Compare both folder presence and contents across two brain roots. */
+function sameManagedBrainState(
+  left: Awaited<ReturnType<typeof managedBrainState>>,
+  right: Awaited<ReturnType<typeof managedBrainState>>
+) {
+  return managedBrainDirectories.every(
+    (directory) =>
+      left[directory].exists === right[directory].exists &&
+      sameManifest(left[directory].manifest, right[directory].manifest)
+  );
+}
+
+/** Compare managed file contents when empty-folder presence is irrelevant. */
+function sameManagedBrainContent(
+  left: Awaited<ReturnType<typeof managedBrainState>>,
+  right: Awaited<ReturnType<typeof managedBrainState>>
+) {
+  return managedBrainDirectories.every((directory) =>
+    sameManifest(left[directory].manifest, right[directory].manifest)
+  );
+}
+
+/** Remove migrated brain data while leaving an Obsidian vault and its other files intact. */
+async function removeManagedSource(root: string, previous: BrainStorage) {
+  try {
+    for (const directory of managedBrainDirectories) {
+      await rm(path.join(root, directory), { recursive: true, force: true });
+    }
+    if (previous.type === "obsidian" && previous.layout === "root") {
+      return true;
+    }
+    for (const entry of await readdir(root)) {
+      if (entry === "openbrain.db" || entry.startsWith("openbrain.db-")) {
+        await rm(path.join(root, entry), { force: true });
+      }
+    }
+    await rmdir(root);
+    if (previous.type === "obsidian") {
+      const vault = path.resolve(previous.vaultPath);
+      let parent = path.dirname(root);
+      while (parent !== vault && parent.startsWith(`${vault}${path.sep}`)) {
+        await rmdir(parent).catch(() => {});
+        parent = path.dirname(parent);
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Prevent multiple brains from claiming the same Obsidian vault root. */
+function assertRootVaultAvailable(
+  brain: string,
+  storage: BrainStorage,
+  config: Awaited<ReturnType<typeof loadConfig>>
+) {
+  if (storage.type !== "obsidian") {
+    return;
+  }
+  const vaultPath = path.resolve(storage.vaultPath);
+  const conflict = Object.entries(config.brains.storage).find(
+    ([otherBrain, candidate]) =>
+      otherBrain !== brain &&
+      candidate.type === "obsidian" &&
+      path.resolve(candidate.vaultPath) === vaultPath &&
+      (candidate.layout === "root" || storage.layout === "root")
+  );
+  if (conflict) {
+    throw new Error(`Obsidian vault root is already used by brain ${conflict[0]}`);
+  }
+}
+
+/** Save the new storage only if the prior configuration is still current. */
 async function saveStorage(
   brain: string,
   previous: BrainStorage,
@@ -157,6 +414,7 @@ async function saveStorage(
   options: OpenBrainOptions
 ) {
   await updateConfig((config) => {
+    assertRootVaultAvailable(brain, storage, config);
     const current = config.brains.storage[brain] ?? { type: "local" };
     if (JSON.stringify(current) !== JSON.stringify(previous)) {
       throw new Error(`Storage configuration changed while brain ${brain} was being moved`);
@@ -169,6 +427,7 @@ async function saveStorage(
   }, options);
 }
 
+/** Update the last dream-log path after brain data moves to a different root. */
 async function rebaseDreamState(source: string, destination: string) {
   const file = path.join(destination, "dreams", "state.json");
   try {
@@ -195,12 +454,13 @@ function rejectOverlappingPaths(source: string, destination: string) {
   }
 }
 
-async function treeManifest(root: string) {
+/** Build a stable digest manifest while excluding transient OpenBrain files. */
+async function treeManifest(root: string, prefix = "") {
   const files: Array<[string, string]> = [];
   async function visit(dir: string) {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const file = path.join(dir, entry.name);
-      if (isTransient(root, file)) {
+      if (isTransient(root, file, prefix)) {
         continue;
       }
       const details = await lstat(file);
@@ -221,8 +481,9 @@ async function treeManifest(root: string) {
   return files.sort(([left], [right]) => left.localeCompare(right));
 }
 
-function isTransient(root: string, file: string) {
-  const relative = path.relative(root, file);
+/** Identify runtime files that must not be copied as brain content. */
+function isTransient(root: string, file: string, prefix = "") {
+  const relative = path.join(prefix, path.relative(root, file));
   return (
     relative === "openbrain.db" ||
     relative.startsWith("openbrain.db-") ||

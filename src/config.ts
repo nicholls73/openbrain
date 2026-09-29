@@ -118,6 +118,7 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Merge persisted values with defaults and reject unsupported configuration. */
 function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
   const defaults = defaultConfig();
   const storage = raw.brains?.storage ?? defaults.brains.storage;
@@ -128,7 +129,8 @@ function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
         (value.type !== "obsidian" ||
           typeof value.vaultPath !== "string" ||
           !value.vaultPath.trim() ||
-          (value.sync !== undefined && value.sync !== "headless")))
+          (value.sync !== undefined && value.sync !== "headless") ||
+          (value.layout !== undefined && value.layout !== "root")))
     ) {
       throw new Error(`Invalid storage configuration for brain ${brain}`);
     }
