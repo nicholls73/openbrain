@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import {
+  type ObsidianSyncServiceManager,
+  type ObsidianSyncServiceStatus,
+  obsidianSyncServiceManager
+} from "./obsidian-service.js";
 import { openBrainHome } from "./paths.js";
 import { type BrainStorageResult, setBrainStorage } from "./storage.js";
 import type { OpenBrainOptions } from "./types.js";
@@ -19,12 +24,14 @@ export type ObsidianRunner = (args: string[], capture: boolean) => CommandResult
 export interface ObsidianSyncResult extends BrainStorageResult {
   remoteVaultCreated: boolean;
   vaultPath: string;
+  service: ObsidianSyncServiceStatus;
 }
 
 export async function connectObsidianSync(
   brain: string,
   options: OpenBrainOptions = {},
-  run: ObsidianRunner = runObsidian
+  run: ObsidianRunner = runObsidian,
+  serviceManager: ObsidianSyncServiceManager = obsidianSyncServiceManager
 ): Promise<ObsidianSyncResult> {
   checked(run, ["login"]);
 
@@ -65,18 +72,38 @@ export async function connectObsidianSync(
   if (!configured) {
     checked(run, ["sync-setup", "--vault", remote.id, "--path", vaultPath]);
   }
-  checked(run, ["sync", "--path", vaultPath]);
-
-  const storage = await setBrainStorage(brain, { type: "obsidian", vaultPath, sync: "headless" }, options);
+  const previousService = await serviceManager.status(vaultPath, options);
+  if (previousService.state === "running") {
+    await serviceManager.stop(vaultPath, options);
+  }
+  let storage: BrainStorageResult;
+  try {
+    checked(run, ["sync", "--path", vaultPath]);
+    storage = await setBrainStorage(brain, { type: "obsidian", vaultPath, sync: "headless" }, options);
+  } catch (error) {
+    if (previousService.state === "running") {
+      await serviceManager.start(vaultPath, options).catch(() => {});
+    }
+    throw error;
+  }
   try {
     checked(run, ["sync", "--path", vaultPath]);
   } catch (error) {
     throw new Error(
-      `OpenBrain storage is connected, but the final Obsidian upload failed. Retry: ob sync --path ${JSON.stringify(vaultPath)}`,
+      `OpenBrain storage migration succeeded, but the final Obsidian upload failed. Retry: openbrain brain sync ${brain} start`,
       { cause: error }
     );
   }
-  return { ...storage, remoteVaultCreated, vaultPath };
+  let service: ObsidianSyncServiceStatus;
+  try {
+    service = await serviceManager.start(vaultPath, options);
+  } catch (error) {
+    throw new Error(
+      `OpenBrain storage migration succeeded, but background Obsidian Sync failed. Retry: openbrain brain sync ${brain} start`,
+      { cause: error }
+    );
+  }
+  return { ...storage, remoteVaultCreated, vaultPath, service };
 }
 
 function runObsidian(args: string[], capture: boolean): CommandResult {

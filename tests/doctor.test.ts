@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { updateConfig } from "../src/config.js";
 import type { DoctorCheck, DoctorReport } from "../src/doctor.js";
 import { renderDoctorReport, runDoctor } from "../src/doctor.js";
+import type { ObsidianSyncServiceManager } from "../src/obsidian-service.js";
 import { addMemory, initOpenBrain, setupOpenBrain } from "../src/openbrain.js";
 import { dreamsDir } from "../src/paths.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
@@ -63,6 +64,39 @@ async function writeCodexHookState(
 }
 
 describe("openbrain doctor", () => {
+  test("reports the managed Obsidian Sync service", async () => {
+    const home = await tempHome();
+    const vault = path.join(home, "vault");
+    await mkdir(path.join(vault, ".obsidian"), { recursive: true });
+    await initOpenBrain(options(home));
+    await updateConfig((config) => {
+      config.brains.storage.main = { type: "obsidian", vaultPath: vault, sync: "headless" };
+    }, options(home));
+    const manager: ObsidianSyncServiceManager = {
+      async status() {
+        return { supported: true, state: "running" };
+      },
+      async start() {
+        return { supported: true, state: "running" };
+      },
+      async stop() {
+        return { supported: true, state: "stopped" };
+      }
+    };
+
+    const report = await runDoctor({
+      ...options(home),
+      fetch: offlineFetch,
+      obsidianServiceManager: manager
+    });
+
+    expect(check(report, "obsidian sync")).toEqual({
+      status: "ok",
+      name: "obsidian sync",
+      detail: "background service is running"
+    });
+  });
+
   test("warns when manual mode retains the Codex retrieval hook", async () => {
     const home = await tempHome();
     const embedder: EmbeddingProvider = {
