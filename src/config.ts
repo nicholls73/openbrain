@@ -128,7 +128,8 @@ function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
         (value.type !== "obsidian" ||
           typeof value.vaultPath !== "string" ||
           !value.vaultPath.trim() ||
-          (value.sync !== undefined && value.sync !== "headless")))
+          (value.sync !== undefined && value.sync !== "headless") ||
+          (value.layout !== undefined && value.layout !== "root")))
     ) {
       throw new Error(`Invalid storage configuration for brain ${brain}`);
     }

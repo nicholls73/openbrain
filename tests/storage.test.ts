@@ -84,6 +84,198 @@ describe("per-brain storage", () => {
     expect((await searchMemories("complete brain", options))[0]?.id).toBe(memory.id);
   });
 
+  test("moves a brain to the Obsidian vault root without disturbing vault files", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const options: OpenBrainOptions = { home, brain: "main", embedder: noEmbeddings };
+    await mkdir(path.join(vault, ".obsidian"));
+    await writeFile(path.join(vault, ".obsidian", "app.json"), "{}", "utf8");
+    await writeFile(path.join(vault, "Personal.md"), "Keep this note.", "utf8");
+    await writeFile(path.join(vault, "openbrain.db"), "Unrelated vault file.", "utf8");
+    const memory = await addMemory(
+      { type: "decision", text: "Store this brain at the vault root." },
+      options
+    );
+
+    const moved = await setBrainStorage(
+      "main",
+      { type: "obsidian", vaultPath: vault, sync: "headless", layout: "root" },
+      options
+    );
+
+    expect(moved.path).toBe(await realpath(vault));
+    expect((await loadConfig({ home })).brains.storage.main).toEqual({
+      type: "obsidian",
+      vaultPath: await realpath(vault),
+      sync: "headless",
+      layout: "root"
+    });
+    await expect(readFile(path.join(vault, ".obsidian", "app.json"), "utf8")).resolves.toBe("{}");
+    await expect(readFile(path.join(vault, "Personal.md"), "utf8")).resolves.toBe("Keep this note.");
+    await expect(stat(path.join(vault, "memories"))).resolves.toBeDefined();
+    await expect(stat(path.join(vault, "OpenBrain"))).rejects.toThrow();
+    await expect(readFile(path.join(vault, "openbrain.db"), "utf8")).resolves.toBe("Unrelated vault file.");
+    await expect(stat(path.join(home, "indexes", "main", "openbrain.db"))).resolves.toBeDefined();
+    expect((await searchMemories("vault root", options))[0]?.id).toBe(memory.id);
+  });
+
+  test("flattens an existing nested Obsidian brain into the vault root", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const options: OpenBrainOptions = { home, brain: "main", embedder: noEmbeddings };
+    await mkdir(path.join(vault, ".obsidian"));
+    await writeFile(path.join(vault, "keep.txt"), "vault file", "utf8");
+    const memory = await addMemory({ type: "decision", text: "Move existing vault data safely." }, options);
+    const nested = await setBrainStorage("main", { type: "obsidian", vaultPath: vault }, options);
+    await writeFile(path.join(nested.path, "dreams", "attachment.txt"), "keep attachment", "utf8");
+
+    const root = await setBrainStorage(
+      "main",
+      { type: "obsidian", vaultPath: vault, layout: "root" },
+      options
+    );
+
+    expect(root.path).toBe(await realpath(vault));
+    await expect(stat(path.join(vault, "memories"))).resolves.toBeDefined();
+    await expect(readFile(path.join(vault, "dreams", "attachment.txt"), "utf8")).resolves.toBe(
+      "keep attachment"
+    );
+    await expect(readFile(path.join(vault, "keep.txt"), "utf8")).resolves.toBe("vault file");
+    await expect(stat(nested.path)).rejects.toThrow();
+    await expect(stat(path.join(vault, "OpenBrain"))).rejects.toThrow();
+    await expect(stat(path.join(home, "indexes", "main", "openbrain.db"))).resolves.toBeDefined();
+    expect((await searchMemories("existing vault", options))[0]?.id).toBe(memory.id);
+  });
+
+  test("moves a vault-root brain back to local without deleting vault content", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const options: OpenBrainOptions = { home, brain: "main", embedder: noEmbeddings };
+    await mkdir(path.join(vault, ".obsidian"));
+    await writeFile(path.join(vault, "Personal.md"), "Keep me.", "utf8");
+    await addMemory({ type: "decision", text: "Move back safely." }, options);
+    await setBrainStorage("main", { type: "obsidian", vaultPath: vault, layout: "root" }, options);
+
+    await setBrainStorage("main", { type: "local" }, options);
+
+    await expect(readFile(path.join(vault, "Personal.md"), "utf8")).resolves.toBe("Keep me.");
+    await expect(stat(path.join(vault, ".obsidian"))).resolves.toBeDefined();
+    await expect(stat(path.join(vault, "memories"))).rejects.toThrow();
+    await expect(stat(path.join(home, "brains", "main", "memories"))).resolves.toBeDefined();
+    await expect(stat(path.join(home, "brains", "main", "openbrain.db"))).resolves.toBeDefined();
+    expect(await searchMemories("move back", options)).toHaveLength(1);
+  });
+
+  test("rejects conflicting top-level brain folders without changing the source", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const options: OpenBrainOptions = { home, brain: "main", embedder: noEmbeddings };
+    await mkdir(path.join(vault, ".obsidian"));
+    await mkdir(path.join(vault, "memories"));
+    await writeFile(path.join(vault, "memories", "Personal.md"), "Do not overwrite.", "utf8");
+    const memory = await addMemory({ type: "decision", text: "Keep local source." }, options);
+
+    await expect(
+      setBrainStorage("main", { type: "obsidian", vaultPath: vault, layout: "root" }, options)
+    ).rejects.toThrow("different memories data");
+
+    expect((await getBrainStorage("main", { home })).storage).toEqual({ type: "local" });
+    expect((await searchMemories("local source", options))[0]?.id).toBe(memory.id);
+    await expect(readFile(path.join(vault, "memories", "Personal.md"), "utf8")).resolves.toBe(
+      "Do not overwrite."
+    );
+  });
+
+  test("rejects a symlinked managed folder at the vault root", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const external = await tempRoot();
+    const options: OpenBrainOptions = { home, brain: "main", embedder: noEmbeddings };
+    await mkdir(path.join(vault, ".obsidian"));
+    await mkdir(path.join(external, "memories"));
+    await writeFile(path.join(external, "memories", "keep.md"), "Do not follow links.", "utf8");
+    await symlink(path.join(external, "memories"), path.join(vault, "memories"), "dir");
+    const memory = await addMemory({ type: "decision", text: "Keep source data." }, options);
+
+    await expect(
+      setBrainStorage("main", { type: "obsidian", vaultPath: vault, layout: "root" }, options)
+    ).rejects.toThrow("unsupported file");
+
+    expect((await getBrainStorage("main", { home })).storage).toEqual({ type: "local" });
+    expect((await searchMemories("source data", options))[0]?.id).toBe(memory.id);
+    await expect(readFile(path.join(external, "memories", "keep.md"), "utf8")).resolves.toBe(
+      "Do not follow links."
+    );
+  });
+
+  test("rolls back a root migration when index rebuilding fails", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    const source = path.join(home, "brains", "main");
+    await mkdir(path.join(vault, ".obsidian"));
+    await mkdir(path.join(source, "memories"), { recursive: true });
+    await writeFile(path.join(source, "memories", "broken.md"), "---\nid: broken\n---\n\nBody\n", "utf8");
+
+    await expect(
+      setBrainStorage("main", { type: "obsidian", vaultPath: vault, layout: "root" }, { home })
+    ).rejects.toThrow("missing type");
+
+    expect((await getBrainStorage("main", { home })).storage).toEqual({ type: "local" });
+    await expect(readFile(path.join(source, "memories", "broken.md"), "utf8")).resolves.toContain("Body");
+    await expect(stat(path.join(vault, "memories"))).rejects.toThrow();
+    await expect(stat(path.join(vault, ".obsidian"))).resolves.toBeDefined();
+  });
+
+  test("keeps concurrent source writes and rolls back the staged root", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    await mkdir(path.join(vault, ".obsidian"));
+    let shouldBlock = false;
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => (markStarted = resolve));
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        if (shouldBlock) {
+          markStarted();
+          await blocked;
+        }
+        return null;
+      }
+    };
+    const options = { home, embedder };
+    await addMemory({ type: "decision", text: "Detect a concurrent brain write." }, options);
+    shouldBlock = true;
+
+    const migration = setBrainStorage(
+      "main",
+      { type: "obsidian", vaultPath: vault, layout: "root" },
+      options
+    );
+    await started;
+    const concurrentFile = path.join(home, "brains", "main", "dreams", "concurrent.txt");
+    await writeFile(concurrentFile, "Keep this concurrent write.", "utf8");
+    release();
+
+    await expect(migration).rejects.toThrow("Brain changed while it was being moved");
+    await expect(readFile(concurrentFile, "utf8")).resolves.toBe("Keep this concurrent write.");
+    expect((await getBrainStorage("main", { home })).storage).toEqual({ type: "local" });
+    await expect(stat(path.join(vault, "memories"))).rejects.toThrow();
+  });
+
+  test("allows only one brain to own an Obsidian vault root", async () => {
+    const home = await tempRoot();
+    const vault = await tempRoot();
+    await mkdir(path.join(vault, ".obsidian"));
+
+    await setBrainStorage("main", { type: "obsidian", vaultPath: vault, layout: "root" }, { home });
+    await expect(setBrainStorage("other", { type: "obsidian", vaultPath: vault }, { home })).rejects.toThrow(
+      "already used by brain main"
+    );
+    expect((await getBrainStorage("other", { home })).storage).toEqual({ type: "local" });
+  });
+
   test("rejects non-vault destinations without changing configuration", async () => {
     const home = await tempRoot();
     const notVault = await tempRoot();

@@ -22,6 +22,16 @@ Connect a brain:
 openbrain brain storage main obsidian
 ```
 
+By default, OpenBrain stores a brain under `OpenBrain/brains/<brain>` inside the vault. To make the brain itself the vault contents, use the root layout:
+
+```bash
+openbrain brain storage main obsidian --root
+```
+
+This moves `memories`, `episodes`, and `dreams` to the vault's top level. Obsidian then shows those folders at the root of the vault. OpenBrain keeps the vault's `.obsidian` settings and unrelated notes. The SQLite index stays under `~/.openbrain/indexes/<brain>`.
+
+Root layout reserves the vault for one OpenBrain brain. If another brain already uses that vault, OpenBrain refuses the move. Use a dedicated Obsidian Sync vault for root layout. On another device, connect the same remote vault with `openbrain brain storage <brain> obsidian --root` so that device uses the same layout.
+
 OpenBrain asks Obsidian Headless to log in when needed. It reuses the remote vault named `brain`, or creates it when missing, then performs an initial sync. The local vault lives at `~/.openbrain/vaults/brain` unless Obsidian Headless already configured that remote vault elsewhere.
 
 The Markdown brain data is synchronized. The rebuildable SQLite search index stays local at `~/.openbrain/indexes/<brain>/openbrain.db` so a live database is never synchronized.
@@ -50,7 +60,7 @@ Move the complete brain into a vault without configuring Obsidian Sync:
 openbrain brain storage main obsidian --vault "/path/to/My Vault"
 ```
 
-OpenBrain requires the vault's `.obsidian` directory, then stores the brain at:
+OpenBrain requires the vault's `.obsidian` directory. By default, it stores the brain at:
 
 ```text
 My Vault/OpenBrain/brains/main/
@@ -61,6 +71,14 @@ My Vault/OpenBrain/brains/main/
 ```
 
 The move copies and verifies the files, rebuilds the index at its new location, updates the configuration, and only then removes the old directory. Stop other OpenBrain processes while moving a brain.
+
+To store the brain at the top level of an existing vault instead, add `--root`:
+
+```bash
+openbrain brain storage main obsidian --vault "/path/to/My Vault" --root
+```
+
+OpenBrain moves only the brain's managed folders and preserves `.obsidian` and other vault files. Root layout can be changed back by moving the brain to local storage or to a nested Obsidian layout.
 
 Move it back to local storage:
 
@@ -76,7 +94,7 @@ Markdown edited in Obsidian becomes searchable after:
 openbrain index rebuild
 ```
 
-Local-vault mode does not configure synchronization. Its SQLite index remains inside the vault, so do not synchronize that vault between computers. Account-based Headless Sync mode keeps its index outside the vault.
+Local-vault mode does not configure synchronization. In the default nested layout, its SQLite index stays with the brain, so do not synchronize that vault between computers. Root layout and Headless Sync keep the index under `~/.openbrain/indexes/<brain>`.
 
 If a move is interrupted before the configuration changes, the verified source remains authoritative. Remove the incomplete destination shown by the error, then run the command again. If the configuration already points to the destination, verify it with `openbrain doctor` before removing the old directory.
 
