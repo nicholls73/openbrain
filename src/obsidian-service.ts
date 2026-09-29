@@ -74,7 +74,13 @@ export async function startObsidianSyncService(
     checked(runtime.run("systemctl", ["--user", "daemon-reload"]), "systemctl daemon-reload");
     checked(runtime.run("systemctl", ["--user", "enable", "--now", context.label]), "systemctl enable");
   }
-  return getObsidianSyncServiceStatus(vaultPath, options, runtime);
+  const status = await getObsidianSyncServiceStatus(vaultPath, options, runtime);
+  if (status.state !== "running") {
+    throw new Error(
+      `Obsidian Sync background service did not stay running${status.logPath ? `; check ${status.logPath}` : ""}`
+    );
+  }
+  return status;
 }
 
 export async function getObsidianSyncServiceStatus(

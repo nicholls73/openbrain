@@ -79,6 +79,16 @@ test("stops a macOS LaunchAgent and removes its definition", async () => {
   expect(calls.some(([command, args]) => command === "launchctl" && args[0] === "bootout")).toBe(true);
 });
 
+test("fails when the background process does not stay running", async () => {
+  const { home, runtime } = await fakeRuntime("darwin");
+  runtime.run = (_command, args) =>
+    args[0] === "print" ? { status: 0, stdout: "state = exited\n" } : { status: 0 };
+
+  await expect(
+    startObsidianSyncService(path.join(home, "vault"), { home: path.join(home, ".openbrain") }, runtime)
+  ).rejects.toThrow("did not stay running");
+});
+
 test("installs and enables a Linux user systemd service", async () => {
   const { home, calls, runtime } = await fakeRuntime("linux");
   const vault = path.join(home, "vault with spaces");
