@@ -762,7 +762,7 @@ async function setBrainStorageWithService(brain: string, storage: BrainStorage) 
   const wasRunning = headless
     ? (await obsidianSyncServiceManager.status(headless.vaultPath)).state === "running"
     : false;
-  if (headless) {
+  if (headless && wasRunning) {
     await obsidianSyncServiceManager.stop(headless.vaultPath);
   }
   try {

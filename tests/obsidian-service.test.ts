@@ -37,13 +37,17 @@ async function fakeRuntime(platform: NodeJS.Platform) {
     uid: 501,
     path: bin,
     nodePath: "/usr/local/bin/node",
+    wait: async () => {},
     run(command, args) {
       calls.push([command, args]);
       if (args[0] === "print") {
-        return { status: 0, stdout: "state = running\n" };
+        return { status: 0, stdout: "state = running\npid = 123\n" };
       }
       if (args.at(-2) === "is-active") {
         return { status: 0, stdout: "active\n" };
+      }
+      if (args.includes("--property=NRestarts")) {
+        return { status: 0, stdout: "0\n" };
       }
       return { status: 0 };
     }
@@ -89,6 +93,17 @@ test("fails when the background process does not stay running", async () => {
   ).rejects.toThrow("did not stay running");
 });
 
+test("fails when launchd replaces the process during startup", async () => {
+  const { home, runtime } = await fakeRuntime("darwin");
+  let pid = 123;
+  runtime.run = (_command, args) =>
+    args[0] === "print" ? { status: 0, stdout: `state = running\npid = ${pid++}\n` } : { status: 0 };
+
+  await expect(
+    startObsidianSyncService(path.join(home, "vault"), { home: path.join(home, ".openbrain") }, runtime)
+  ).rejects.toThrow("did not stay running");
+});
+
 test("installs and enables a Linux user systemd service", async () => {
   const { home, calls, runtime } = await fakeRuntime("linux");
   const vault = path.join(home, "vault with spaces");
@@ -100,10 +115,36 @@ test("installs and enables a Linux user systemd service", async () => {
   const unit = await readFile(status.serviceFile!, "utf8");
   expect(unit).toContain(`--path "${vault}" --continuous`);
   expect(unit).toContain("Restart=always");
-  expect(calls).toContainEqual([
-    "systemctl",
-    ["--user", "enable", "--now", path.basename(status.serviceFile!)]
-  ]);
+  expect(calls).toContainEqual(["systemctl", ["--user", "enable", path.basename(status.serviceFile!)]]);
+  expect(calls).toContainEqual(["systemctl", ["--user", "restart", path.basename(status.serviceFile!)]]);
+});
+
+test("rejects a Linux service that restarts during startup", async () => {
+  const { home, runtime } = await fakeRuntime("linux");
+  let restartChecks = 0;
+  const run = runtime.run;
+  runtime.run = (command, args) => {
+    if (args.includes("--property=NRestarts")) {
+      return { status: 0, stdout: `${restartChecks++}\n` };
+    }
+    return run(command, args);
+  };
+
+  await expect(
+    startObsidianSyncService(path.join(home, "vault"), { home: path.join(home, ".openbrain") }, runtime)
+  ).rejects.toThrow("did not stay running");
+});
+
+test("rejects control characters in service definitions", async () => {
+  const mac = await fakeRuntime("darwin");
+  const linux = await fakeRuntime("linux");
+
+  await expect(startObsidianSyncService(`${mac.home}/vault\0`, {}, mac.runtime)).rejects.toThrow(
+    "cannot be written"
+  );
+  await expect(startObsidianSyncService(`${linux.home}/vault\nname`, {}, linux.runtime)).rejects.toThrow(
+    "cannot be written"
+  );
 });
 
 test("reports unsupported hosts with the foreground command", async () => {

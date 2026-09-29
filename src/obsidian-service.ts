@@ -37,7 +37,10 @@ export interface ObsidianServiceRuntime {
   path?: string;
   nodePath?: string;
   run: ServiceCommandRunner;
+  wait?: (milliseconds: number) => Promise<void>;
 }
+
+const SERVICE_STABILITY_WAIT_MS = 5_500;
 
 export const obsidianSyncServiceManager: ObsidianSyncServiceManager = {
   start: (vaultPath, options) => startObsidianSyncService(vaultPath, options),
@@ -70,15 +73,28 @@ export async function startObsidianSyncService(
       runtime.run("launchctl", ["kickstart", "-k", `${context.domain}/${context.label}`]),
       "launchctl kickstart"
     );
+    const pid = launchdPid(runtime, context.domain, context.label);
+    await waitForStability(runtime);
+    if (!pid || launchdPid(runtime, context.domain, context.label) !== pid) {
+      throw serviceDidNotStayRunning(context.logPath);
+    }
   } else {
     checked(runtime.run("systemctl", ["--user", "daemon-reload"]), "systemctl daemon-reload");
-    checked(runtime.run("systemctl", ["--user", "enable", "--now", context.label]), "systemctl enable");
+    checked(runtime.run("systemctl", ["--user", "enable", context.label]), "systemctl enable");
+    checked(runtime.run("systemctl", ["--user", "reset-failed", context.label]), "systemctl reset-failed");
+    const restarts = systemdRestartCount(runtime, context.label);
+    checked(runtime.run("systemctl", ["--user", "restart", context.label]), "systemctl restart");
+    await waitForStability(runtime);
+    if (
+      runtime.run("systemctl", ["--user", "is-active", context.label]).status !== 0 ||
+      systemdRestartCount(runtime, context.label) !== restarts
+    ) {
+      throw serviceDidNotStayRunning(context.logPath);
+    }
   }
   const status = await getObsidianSyncServiceStatus(vaultPath, options, runtime);
   if (status.state !== "running") {
-    throw new Error(
-      `Obsidian Sync background service did not stay running${status.logPath ? `; check ${status.logPath}` : ""}`
-    );
+    throw serviceDidNotStayRunning(status.logPath);
   }
   return status;
 }
@@ -288,6 +304,38 @@ function checked(result: ServiceCommandResult, action: string) {
   }
 }
 
+function launchdPid(runtime: ObsidianServiceRuntime, domain: string, label: string) {
+  const result = runtime.run("launchctl", ["print", `${domain}/${label}`]);
+  if (result.status !== 0 || !/^\s*state = running\s*$/m.test(result.stdout ?? "")) {
+    return undefined;
+  }
+  const value = /^\s*pid = ([1-9]\d*)\s*$/m.exec(result.stdout ?? "")?.[1];
+  return value ? Number(value) : undefined;
+}
+
+function systemdRestartCount(runtime: ObsidianServiceRuntime, label: string) {
+  const result = runtime.run("systemctl", ["--user", "show", "--property=NRestarts", "--value", label]);
+  checked(result, "systemctl show NRestarts");
+  const value = Number(result.stdout?.trim());
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error("systemctl returned an invalid NRestarts value");
+  }
+  return value;
+}
+
+function waitForStability(runtime: ObsidianServiceRuntime) {
+  return (
+    runtime.wait?.(SERVICE_STABILITY_WAIT_MS) ??
+    new Promise<void>((resolve) => setTimeout(resolve, SERVICE_STABILITY_WAIT_MS))
+  );
+}
+
+function serviceDidNotStayRunning(logPath?: string) {
+  return new Error(
+    `Obsidian Sync background service did not stay running${logPath ? `; check ${logPath}` : ""}`
+  );
+}
+
 function unsupportedStatus(vaultPath: string): ObsidianSyncServiceStatus {
   return {
     supported: false,
@@ -297,6 +345,14 @@ function unsupportedStatus(vaultPath: string): ObsidianSyncServiceStatus {
 }
 
 function xml(value: string) {
+  if (
+    Array.from(value).some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
+    })
+  ) {
+    throw new Error("Path contains characters that cannot be written to a service definition");
+  }
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -309,6 +365,9 @@ function systemdQuote(value: string) {
 }
 
 function systemdEscape(value: string) {
+  if (value.includes("\r") || value.includes("\n") || value.includes("\0")) {
+    throw new Error("Path contains characters that cannot be written to a service definition");
+  }
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%");
 }
 
