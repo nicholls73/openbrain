@@ -39,6 +39,7 @@ export async function getBrainStorage(
   return { brain: name, storage, path: resolveBrainRoot(config, name, options) };
 }
 
+/** Move a brain between local and Obsidian storage without merging conflicting data. */
 export async function setBrainStorage(
   brain: string,
   requested: BrainStorage,
@@ -155,6 +156,7 @@ export async function setBrainStorage(
   }
 }
 
+/** Canonicalize and validate an Obsidian vault before changing storage. */
 async function normalizeStorage(storage: BrainStorage): Promise<BrainStorage> {
   if (storage.type === "local") {
     return storage;
@@ -176,6 +178,7 @@ async function normalizeStorage(storage: BrainStorage): Promise<BrainStorage> {
 
 const managedBrainDirectories = ["memories", "episodes", "dreams"] as const;
 
+/** Move only managed brain folders while preserving the rest of an Obsidian vault. */
 async function migrateRootLayout(
   brain: string,
   source: string,
@@ -300,6 +303,7 @@ async function migrateRootLayout(
   return { brain, storage, path: destination, moved: true, sourceRemoved };
 }
 
+/** Snapshot which managed folders exist and the files they contain. */
 async function managedBrainState(root: string) {
   const entries = {} as Record<
     (typeof managedBrainDirectories)[number],
@@ -324,10 +328,12 @@ async function managedBrainState(root: string) {
   return entries;
 }
 
+/** Compare sorted file-path and content-digest manifests. */
 function sameManifest(left: Array<[string, string]>, right: Array<[string, string]>) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/** Compare both folder presence and contents across two brain roots. */
 function sameManagedBrainState(
   left: Awaited<ReturnType<typeof managedBrainState>>,
   right: Awaited<ReturnType<typeof managedBrainState>>
@@ -339,6 +345,7 @@ function sameManagedBrainState(
   );
 }
 
+/** Compare managed file contents when empty-folder presence is irrelevant. */
 function sameManagedBrainContent(
   left: Awaited<ReturnType<typeof managedBrainState>>,
   right: Awaited<ReturnType<typeof managedBrainState>>
@@ -348,6 +355,7 @@ function sameManagedBrainContent(
   );
 }
 
+/** Remove migrated brain data while leaving an Obsidian vault and its other files intact. */
 async function removeManagedSource(root: string, previous: BrainStorage) {
   try {
     for (const directory of managedBrainDirectories) {
@@ -376,6 +384,7 @@ async function removeManagedSource(root: string, previous: BrainStorage) {
   }
 }
 
+/** Prevent multiple brains from claiming the same Obsidian vault root. */
 function assertRootVaultAvailable(
   brain: string,
   storage: BrainStorage,
@@ -397,6 +406,7 @@ function assertRootVaultAvailable(
   }
 }
 
+/** Save the new storage only if the prior configuration is still current. */
 async function saveStorage(
   brain: string,
   previous: BrainStorage,
@@ -417,6 +427,7 @@ async function saveStorage(
   }, options);
 }
 
+/** Update the last dream-log path after brain data moves to a different root. */
 async function rebaseDreamState(source: string, destination: string) {
   const file = path.join(destination, "dreams", "state.json");
   try {
@@ -443,6 +454,7 @@ function rejectOverlappingPaths(source: string, destination: string) {
   }
 }
 
+/** Build a stable digest manifest while excluding transient OpenBrain files. */
 async function treeManifest(root: string, prefix = "") {
   const files: Array<[string, string]> = [];
   async function visit(dir: string) {
@@ -469,6 +481,7 @@ async function treeManifest(root: string, prefix = "") {
   return files.sort(([left], [right]) => left.localeCompare(right));
 }
 
+/** Identify runtime files that must not be copied as brain content. */
 function isTransient(root: string, file: string, prefix = "") {
   const relative = path.join(prefix, path.relative(root, file));
   return (

@@ -52,6 +52,7 @@ export async function getCurrentBrain(options: OpenBrainOptions = {}) {
   return status.state === "active" ? status.brain : `${status.state}:${status.brain}`;
 }
 
+/** Resolve a brain's storage paths and prepare its writable directories. */
 export async function prepareOpenBrain(
   options: OpenBrainOptions = {},
   behavior: { allowUnavailable?: boolean; readonly?: boolean } = {}
@@ -105,6 +106,7 @@ export async function prepareOpenBrain(
   return { config, options: scopedOptions, resolution };
 }
 
+/** Reject unsafe entries where root-layout brain folders will be read or written. */
 async function validateRootBrainDirectories(root: string) {
   for (const name of ["memories", "episodes", "dreams"]) {
     const directory = path.join(root, name);
@@ -120,6 +122,7 @@ async function validateRootBrainDirectories(root: string) {
   }
 }
 
+/** Resolve the directory that contains a brain's managed Markdown data. */
 export function resolveBrainRoot(config: OpenBrainConfig, brain: string, options: OpenBrainOptions = {}) {
   if (options.brainRoot) {
     return options.brainRoot;

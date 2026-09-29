@@ -118,6 +118,7 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Merge persisted values with defaults and reject unsupported configuration. */
 function mergeConfig(raw: Partial<OpenBrainConfig>): OpenBrainConfig {
   const defaults = defaultConfig();
   const storage = raw.brains?.storage ?? defaults.brains.storage;

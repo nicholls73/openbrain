@@ -55,6 +55,7 @@ import {
   type UpdatePlan
 } from "./update.js";
 
+/** Dispatch one parsed CLI invocation to its command handler. */
 async function main(argv: string[]) {
   const [area, command, ...rest] = argv;
 
@@ -807,6 +808,7 @@ async function setBrainStorageWithService(brain: string, storage: BrainStorage) 
   }
 }
 
+/** Print the supported commands and their accepted arguments. */
 function usage() {
   console.log(`Usage:
   openbrain version

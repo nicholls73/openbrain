@@ -27,6 +27,7 @@ export interface ObsidianSyncResult extends BrainStorageResult {
   service: ObsidianSyncServiceStatus;
 }
 
+/** Connect the remote brain vault, migrate storage, and resume background Sync. */
 export async function connectObsidianSync(
   brain: string,
   options: OpenBrainOptions = {},
