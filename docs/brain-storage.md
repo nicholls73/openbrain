@@ -26,7 +26,19 @@ OpenBrain asks Obsidian Headless to log in when needed. It reuses the remote vau
 
 The Markdown brain data is synchronized. The rebuildable SQLite search index stays local at `~/.openbrain/indexes/<brain>/openbrain.db` so a live database is never synchronized.
 
-The command prints the `ob sync --continuous` command for ongoing synchronization. Do not run Obsidian desktop Sync and Headless Sync for the same vault on one computer; Obsidian warns that this can cause conflicts.
+OpenBrain starts continuous synchronization as a user background service. It uses a LaunchAgent on macOS and a user systemd service on Linux, starts again at login, and restarts after unexpected failures. No Obsidian credentials are copied into the service definition.
+
+Check or control the service:
+
+```bash
+openbrain brain sync main status
+openbrain brain sync main start
+openbrain brain sync main stop
+```
+
+On macOS, output is written under `~/.openbrain/logs`. On Linux, use `journalctl --user` to inspect the service log. Platforms without LaunchAgent or systemd support keep the foreground `ob sync --continuous` fallback shown by the command.
+
+The service is shared by every brain in the `brain` vault. Moving one brain back to local storage keeps synchronization running when another brain still uses that vault. Do not run Obsidian desktop Sync and Headless Sync for the same vault on one computer; Obsidian warns that this can cause conflicts.
 
 If both local and remote storage already contain different data for the same brain, OpenBrain stops without merging or deleting either copy.
 

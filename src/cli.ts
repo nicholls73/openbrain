@@ -5,6 +5,7 @@ import { loadConfig, updateConfig } from "./config.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
 import { runMcpServer } from "./mcp.js";
 import { connectObsidianSync } from "./obsidian.js";
+import { obsidianSyncServiceManager } from "./obsidian-service.js";
 import {
   addBrainPath,
   addMemory,
@@ -36,6 +37,7 @@ import {
 import { claudeSettingsPath, codexHooksPath } from "./paths.js";
 import { parseConfidence, parseSearchArgs } from "./search-args.js";
 import {
+  type BrainStorage,
   type DurableMemoryType,
   isDurableMemoryType,
   isMemoryType,
@@ -162,9 +164,14 @@ async function main(argv: string[]) {
       console.log(
         `${result.remoteVaultCreated ? "Created" : "Using"} Obsidian Sync vault brain: ${result.path}`
       );
-      console.log(
-        `Run continuous sync with: ob sync --path ${JSON.stringify(result.vaultPath)} --continuous`
-      );
+      if (result.service.state === "running") {
+        console.log("Continuous Obsidian Sync is running in the background.");
+        if (result.service.logPath) {
+          console.log(`Sync log: ${result.service.logPath}`);
+        }
+      } else {
+        console.log(`Background sync is unavailable on this platform. Run: ${result.service.manualCommand}`);
+      }
       return;
     }
     if (mode === "obsidian" && (!vaultPath || rest.length !== 4 || rest[2] !== "--vault")) {
@@ -173,13 +180,36 @@ async function main(argv: string[]) {
     if (mode === "local" && rest.length > 2) {
       throw new Error("Local storage does not accept additional options");
     }
-    const result = await setBrainStorage(
+    const result = await setBrainStorageWithService(
       brain,
       mode === "local" ? { type: "local" } : { type: "obsidian", vaultPath: vaultPath! }
     );
     console.log(`${result.moved ? "Moved" : "Using"} brain ${result.brain}: ${result.path}`);
     if (!result.sourceRemoved) {
       console.warn("OpenBrain could not remove the previous brain directory; remove it manually.");
+    }
+    return;
+  }
+
+  if (area === "brain" && command === "sync") {
+    const brain = rest[0];
+    const action = rest[1];
+    if (!brain || !action || rest.length !== 2 || !["start", "status", "stop"].includes(action)) {
+      throw new Error("Usage: openbrain brain sync <brain> <start|status|stop>");
+    }
+    const storage = await getBrainStorage(brain);
+    if (storage.storage.type !== "obsidian" || storage.storage.sync !== "headless") {
+      throw new Error(`Brain ${storage.brain} does not use Obsidian Headless Sync`);
+    }
+    const result = await obsidianSyncServiceManager[action as "start" | "status" | "stop"](
+      storage.storage.vaultPath
+    );
+    console.log(`Obsidian Sync background service: ${result.state}`);
+    if (result.logPath) {
+      console.log(`Sync log: ${result.logPath}`);
+    }
+    if (result.manualCommand) {
+      console.log(`Run continuous sync with: ${result.manualCommand}`);
     }
     return;
   }
@@ -723,6 +753,41 @@ function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {
   console.log(`Dream skipped for brain ${result.brain}: ${result.reason}`);
 }
 
+async function setBrainStorageWithService(brain: string, storage: BrainStorage) {
+  const previous = await getBrainStorage(brain);
+  const headless =
+    previous.storage.type === "obsidian" && previous.storage.sync === "headless"
+      ? previous.storage
+      : undefined;
+  const wasRunning = headless
+    ? (await obsidianSyncServiceManager.status(headless.vaultPath)).state === "running"
+    : false;
+  if (headless && wasRunning) {
+    await obsidianSyncServiceManager.stop(headless.vaultPath);
+  }
+  try {
+    const result = await setBrainStorage(brain, storage);
+    if (headless && wasRunning) {
+      const config = await loadConfig();
+      const stillUsed = Object.values(config.brains.storage).some(
+        (candidate) =>
+          candidate.type === "obsidian" &&
+          candidate.sync === "headless" &&
+          candidate.vaultPath === headless.vaultPath
+      );
+      if (stillUsed) {
+        await obsidianSyncServiceManager.start(headless.vaultPath);
+      }
+    }
+    return result;
+  } catch (error) {
+    if (headless && wasRunning) {
+      await obsidianSyncServiceManager.start(headless.vaultPath).catch(() => {});
+    }
+    throw error;
+  }
+}
+
 function usage() {
   console.log(`Usage:
   openbrain version
@@ -750,6 +815,7 @@ function usage() {
   openbrain brain current
   openbrain brain add-path <brain> [path]
   openbrain brain storage <brain> [local|obsidian [--vault <path>]]
+  openbrain brain sync <brain> <start|status|stop>
   openbrain mcp
   openbrain review list
   openbrain review done <file>

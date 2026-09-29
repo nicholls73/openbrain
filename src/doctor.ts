@@ -8,6 +8,7 @@ import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { prepareOpenBrain } from "./internal.js";
 import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
+import { type ObsidianSyncServiceManager, obsidianSyncServiceManager } from "./obsidian-service.js";
 import {
   CLAUDE_HOOK_COMMAND,
   CODEX_HOOK_COMMAND,
@@ -34,6 +35,7 @@ export interface DoctorReport {
 
 export interface DoctorOptions extends OpenBrainOptions {
   fetch?: typeof fetch;
+  obsidianServiceManager?: ObsidianSyncServiceManager;
 }
 
 // One command that verifies the whole installation and prints actionable
@@ -64,6 +66,17 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
 
   const activeBrain = await brainCheck(checks, options);
   if (activeBrain) {
+    const storage = config.brains.storage[activeBrain];
+    if (storage?.type === "obsidian" && storage.sync === "headless") {
+      checks.push(
+        await obsidianSyncServiceCheck(
+          activeBrain,
+          storage.vaultPath,
+          options,
+          options.obsidianServiceManager ?? obsidianSyncServiceManager
+        )
+      );
+    }
     try {
       const scoped = await prepareOpenBrain({ ...options, brain: activeBrain }, { readonly: true });
       await databaseCheck(checks, scoped.options);
@@ -115,6 +128,41 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
 
   checks.push(await pathCheck());
   return summarise(checks);
+}
+
+async function obsidianSyncServiceCheck(
+  brain: string,
+  vaultPath: string,
+  options: OpenBrainOptions,
+  manager: ObsidianSyncServiceManager
+): Promise<DoctorCheck> {
+  try {
+    const status = await manager.status(vaultPath, options);
+    if (status.state === "running") {
+      return { status: "ok", name: "obsidian sync", detail: "background service is running" };
+    }
+    if (status.state === "unsupported") {
+      return {
+        status: "warn",
+        name: "obsidian sync",
+        detail: "background services are unavailable on this platform",
+        hint: status.manualCommand
+      };
+    }
+    return {
+      status: "warn",
+      name: "obsidian sync",
+      detail: "background service is stopped",
+      hint: `openbrain brain sync ${brain} start`
+    };
+  } catch (error) {
+    return {
+      status: "warn",
+      name: "obsidian sync",
+      detail: `background service status failed: ${message(error)}`,
+      hint: `openbrain brain sync ${brain} start`
+    };
+  }
 }
 
 export function renderDoctorReport(report: DoctorReport) {

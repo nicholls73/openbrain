@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { loadConfig } from "../src/config.js";
 import { connectObsidianSync, type ObsidianRunner } from "../src/obsidian.js";
+import type { ObsidianSyncServiceManager, ObsidianSyncServiceStatus } from "../src/obsidian-service.js";
 import { addMemory } from "../src/openbrain.js";
 import type { EmbeddingProvider } from "../src/types.js";
 
@@ -32,14 +33,22 @@ test("creates and connects the brain Sync vault", async () => {
     { home, embedder: noEmbeddings }
   );
   const fake = fakeObsidian();
+  const service = fakeService();
 
-  const result = await connectObsidianSync("main", { home, embedder: noEmbeddings }, fake.run);
+  const result = await connectObsidianSync(
+    "main",
+    { home, embedder: noEmbeddings },
+    fake.run,
+    service.manager
+  );
 
   const vault = path.join(home, "vaults", "brain");
   expect(result.remoteVaultCreated).toBe(true);
   expect(fake.calls).toContainEqual(["sync-create-remote", "--name", "brain", "--encryption", "standard"]);
   expect(fake.calls).toContainEqual(["sync-setup", "--vault", "remote-brain", "--path", vault]);
   expect(fake.calls.filter(([command]) => command === "sync")).toHaveLength(2);
+  expect(service.calls).toEqual(["status", "start"]);
+  expect(result.service.state).toBe("running");
   expect((await loadConfig({ home })).brains.storage.main).toEqual({
     type: "obsidian",
     vaultPath: await realpath(vault),
@@ -54,12 +63,19 @@ test("reuses the existing remote and local brain vault", async () => {
   const vault = path.join(home, "existing-brain-vault");
   await mkdir(vault, { recursive: true });
   const fake = fakeObsidian({ remoteExists: true, localPath: vault });
+  const service = fakeService("running");
 
-  const result = await connectObsidianSync("main", { home, embedder: noEmbeddings }, fake.run);
+  const result = await connectObsidianSync(
+    "main",
+    { home, embedder: noEmbeddings },
+    fake.run,
+    service.manager
+  );
 
   expect(result.remoteVaultCreated).toBe(false);
   expect(fake.calls.some(([command]) => command === "sync-create-remote")).toBe(false);
   expect(fake.calls.some(([command]) => command === "sync-setup")).toBe(false);
+  expect(service.calls).toEqual(["status", "stop", "start"]);
   await expect(readFile(path.join(home, "config.json"), "utf8")).resolves.toContain('"sync": "headless"');
 });
 
@@ -67,7 +83,7 @@ test("fails when the account has ambiguous brain vaults", async () => {
   const home = await tempRoot();
   const fake = fakeObsidian({ duplicateRemote: true });
 
-  await expect(connectObsidianSync("main", { home }, fake.run)).rejects.toThrow(
+  await expect(connectObsidianSync("main", { home }, fake.run, fakeService().manager)).rejects.toThrow(
     "Multiple Obsidian Sync vaults"
   );
   expect(fake.calls).toEqual([["login"], ["sync-list-remote", "--json"]]);
@@ -81,7 +97,9 @@ test("rejects another remote configured through a symlink to the brain vault", a
   await symlink(vault, alias, "dir");
   const fake = fakeObsidian({ remoteExists: true, localPath: alias, localId: "other-remote" });
 
-  await expect(connectObsidianSync("main", { home }, fake.run)).rejects.toThrow("already uses");
+  await expect(connectObsidianSync("main", { home }, fake.run, fakeService().manager)).rejects.toThrow(
+    "already uses"
+  );
   expect(fake.calls.some(([command]) => command === "sync-setup")).toBe(false);
 });
 
@@ -132,4 +150,27 @@ function fakeObsidian(
     remoteExists = true;
   }
   return { calls, run };
+}
+
+function fakeService(initial: ObsidianSyncServiceStatus["state"] = "stopped") {
+  const calls: string[] = [];
+  let state = initial;
+  const result = (): ObsidianSyncServiceStatus => ({ supported: true, state });
+  const manager: ObsidianSyncServiceManager = {
+    async status() {
+      calls.push("status");
+      return result();
+    },
+    async start() {
+      calls.push("start");
+      state = "running";
+      return result();
+    },
+    async stop() {
+      calls.push("stop");
+      state = "stopped";
+      return result();
+    }
+  };
+  return { calls, manager };
 }
