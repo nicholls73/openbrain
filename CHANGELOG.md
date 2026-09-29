@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.0](https://github.com/nicholls73/openbrain/compare/v0.11.0...v0.12.0) (2026-09-29)
+
+
+### Features
+
+* add Obsidian vault root layout ([#159](https://github.com/nicholls73/openbrain/issues/159)) ([5d7ed6e](https://github.com/nicholls73/openbrain/commit/5d7ed6e8d2fbdd777449f1938e44b8dd9b5a420b))
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @types/node from 26.6.2 to 26.6.3 ([572e6ac](https://github.com/nicholls73/openbrain/commit/572e6acafc83a26e7e6528f1847da550f5840d70))
+* **deps-dev:** bump vitest from 5.0.1 to 5.0.2 ([#162](https://github.com/nicholls73/openbrain/issues/162)) ([f69f352](https://github.com/nicholls73/openbrain/commit/f69f3522c39a2add35b6742afcaf88e8260277ed))
+* **deps:** bump @modelcontextprotocol/sdk from 1.30.0 to 1.30.1 ([#161](https://github.com/nicholls73/openbrain/issues/161)) ([8bcd202](https://github.com/nicholls73/openbrain/commit/8bcd202ad9e928fcca4b7051c36fea778cdad030))
+
 ## [0.11.0](https://github.com/nicholls73/openbrain/compare/v0.10.0...v0.11.0) (2026-09-29)
 
 
