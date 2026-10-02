@@ -1738,6 +1738,11 @@ describe("Codex adapter sync", () => {
 
     expect(agentFile).toContain("Relevant high-confidence durable memories are injected");
     expect(agentFile).toContain("openbrain agents guide codex");
+    expect(agentFile).toContain(
+      "After meaningful work, record useful observations before finishing the task."
+    );
+    expect(agentFile).toContain("Confirm that each memory write succeeds");
+    expect(agentFile).toContain("follow the guide's recovery instructions if a write fails");
     expect(agentFile).not.toContain("openbrain dream maybe --quiet");
     expect(agentFile).not.toContain("openbrain memory search");
   });
@@ -1755,13 +1760,15 @@ describe("Codex adapter sync", () => {
 
     await writeFile(
       path.join(codexHome, "AGENTS.md"),
-      `# Existing rules\n\nDo not remove this.\n\n${first}`,
+      `# Existing rules\n\nDo not remove this.\n\n<!-- BEGIN OPENBRAIN -->\nOld OpenBrain instructions.\n<!-- END OPENBRAIN -->\n`,
       "utf8"
     );
     await syncCodexAgent({ ...options(home), codexHome });
     const second = await readFile(path.join(codexHome, "AGENTS.md"), "utf8");
 
     expect(second).toContain("Do not remove this.");
+    expect(second).toContain("After meaningful work, record useful observations before finishing the task.");
+    expect(second).not.toContain("Old OpenBrain instructions.");
     expect(second.match(/BEGIN OPENBRAIN/g)).toHaveLength(1);
   });
 

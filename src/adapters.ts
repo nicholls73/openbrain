@@ -508,6 +508,8 @@ function codexMinimalBlock() {
 OpenBrain is local, brain-routed memory. Relevant high-confidence durable memories are injected before each prompt; use only those that apply.
 
 Do not run OpenBrain dream or memory search manually. Store only durable guidance or short-lived evidence, never secrets or credentials. Before recording memory, reviewing promotion candidates, or troubleshooting OpenBrain, run \`openbrain agents guide codex\` for detailed guidance.
+
+After meaningful work, record useful observations before finishing the task. Confirm that each memory write succeeds; follow the guide's recovery instructions if a write fails.
 ${OPENBRAIN_END}`;
 }
 
