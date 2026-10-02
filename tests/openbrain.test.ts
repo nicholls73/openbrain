@@ -1742,7 +1742,8 @@ describe("Codex adapter sync", () => {
       "After meaningful work, record useful observations before finishing the task."
     );
     expect(agentFile).toContain("Confirm that each memory write succeeds");
-    expect(agentFile).toContain("follow the guide's recovery instructions if a write fails");
+    expect(agentFile).toContain("If a write fails, stop further memory mutations");
+    expect(agentFile).toContain("follow the guide's recovery instructions");
     expect(agentFile).not.toContain("openbrain dream maybe --quiet");
     expect(agentFile).not.toContain("openbrain memory search");
   });
@@ -1801,6 +1802,17 @@ describe("Codex adapter sync", () => {
       config.agents.codex.memoryMode = "manual";
     }, options(home));
     await expect(codexManualGuide(options(home))).resolves.toContain("Before starting a task");
+  });
+
+  test("provides recovery guidance for non-permission memory mutation failures", async () => {
+    const home = await tempHome();
+    await initOpenBrain(options(home));
+
+    const guide = (await codexManualGuide(options(home))).replace(/\s+/g, " ");
+
+    expect(guide).toContain("For any other memory mutation failure, stop further writes.");
+    expect(guide).toContain("Report the exact error and the affected memory ID or file path, if available.");
+    expect(guide).toContain("Request repair or reconciliation from the user before retrying.");
   });
 
   test("preserves existing hooks and installs one prompt retrieval hook", async () => {

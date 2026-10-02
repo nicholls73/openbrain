@@ -509,7 +509,7 @@ OpenBrain is local, brain-routed memory. Relevant high-confidence durable memori
 
 Do not run OpenBrain dream or memory search manually. Store only durable guidance or short-lived evidence, never secrets or credentials. Before recording memory, reviewing promotion candidates, or troubleshooting OpenBrain, run \`openbrain agents guide codex\` for detailed guidance.
 
-After meaningful work, record useful observations before finishing the task. Confirm that each memory write succeeds; follow the guide's recovery instructions if a write fails.
+After meaningful work, record useful observations before finishing the task. Confirm that each memory write succeeds. If a write fails, stop further memory mutations and follow the guide's recovery instructions.
 ${OPENBRAIN_END}`;
 }
 
@@ -626,6 +626,11 @@ If an \`openbrain\` command fails with a sandbox or permission message, the
 memory store is outside the sandbox's write allowlist. Ask the user to
 approve elevated filesystem access, then rerun the exact same command. Do
 not silently skip memory search or recording.
+
+For any other memory mutation failure, stop further writes. Report the exact
+error and the affected memory ID or file path, if available. An add, update,
+merge, or delete can fail after changing a file, leaving partial state.
+Request repair or reconciliation from the user before retrying.
 
 For POC or reference work, classify details before storing them. Keep the
 reusable rule, such as how to separate UI, calculation, data contract, fixture,
