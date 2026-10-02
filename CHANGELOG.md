@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/nicholls73/openbrain/compare/v0.12.0...v0.12.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* restore Codex memory recording guidance ([#164](https://github.com/nicholls73/openbrain/issues/164)) ([07d3e3d](https://github.com/nicholls73/openbrain/commit/07d3e3d3c3477da08545a9c2f932e3db7c6c7bb6))
+
 ## [0.12.0](https://github.com/nicholls73/openbrain/compare/v0.11.0...v0.12.0) (2026-09-29)
 
 
