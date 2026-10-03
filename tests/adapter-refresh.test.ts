@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { CODEX_HOOK_COMMAND, OPENBRAIN_BEGIN, refreshConfiguredAgentAdapters } from "../src/adapters.js";
 import { updateConfig } from "../src/config.js";
@@ -296,4 +299,39 @@ describe("configured agent refresh", () => {
       code: "ENOENT"
     });
   });
+});
+
+test("agents refresh CLI reports success and exits nonzero for incomplete instructions", async () => {
+  const options = await tempOptions();
+  await updateConfig((config) => {
+    config.agents.codex.enabled = true;
+    config.agents.claude.enabled = false;
+  }, options);
+  await mkdir(options.codexHome, { recursive: true });
+  const instructionsPath = path.join(options.codexHome, "AGENTS.md");
+  const original = `${OPENBRAIN_BEGIN}\nOld instructions.\n<!-- END OPENBRAIN -->\n`;
+  await writeFile(instructionsPath, original);
+  const run = () =>
+    promisify(execFile)(
+      process.execPath,
+      [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), "agents", "refresh"],
+      {
+        env: {
+          ...process.env,
+          OPENBRAIN_HOME: options.home,
+          CODEX_HOME: options.codexHome,
+          CLAUDE_HOME: options.claudeHome
+        }
+      }
+    );
+  expect((await run()).stdout).toContain("codex: refreshed");
+  expect(await readFile(instructionsPath, "utf8")).not.toBe(original);
+  const malformed = `${OPENBRAIN_BEGIN}\nMissing end marker.\n`;
+  await writeFile(instructionsPath, malformed);
+  await expect(run()).rejects.toMatchObject({
+    code: 1,
+    stdout: expect.stringContaining("codex: incomplete"),
+    stderr: expect.stringContaining("Agent instruction refresh is incomplete.")
+  });
+  expect(await readFile(instructionsPath, "utf8")).toBe(malformed);
 });
