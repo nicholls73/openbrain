@@ -2,6 +2,7 @@ import type { IndexedMemoryRow } from "./db.js";
 import { allRowsWithEmbeddings, decodeEmbedding, ftsSearch, openDatabase } from "./db.js";
 import { embedWithTimeout } from "./embeddings.js";
 import { cosine, excerpt, prepareOpenBrain, resolveEmbedder } from "./internal.js";
+import { parseRelatedTo } from "./markdown.js";
 import type { SearchMemoriesOptions, SearchResult, StoredMemoryType } from "./types.js";
 
 export async function searchMemories(query: string, options: SearchMemoriesOptions = {}) {
@@ -101,6 +102,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
           scope: row.scope,
           confidence: row.confidence as SearchResult["confidence"],
           expiresAt: row.expires_at ?? undefined,
+          relatedTo: parseRelatedTo(row.related_to ?? undefined),
           promotedFrom: row.promoted_from ?? undefined,
           sensitivity: row.sensitivity as SearchResult["sensitivity"],
           promoteAs: (row.promote_as ?? undefined) as SearchResult["promoteAs"],
