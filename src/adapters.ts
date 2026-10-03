@@ -1,14 +1,15 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { BrainUnavailableError } from "./brains.js";
 import { loadConfig } from "./config.js";
 import { getBrainStatus, initOpenBrain } from "./internal.js";
 import { dreamMaybe, listPendingReviews } from "./maintenance.js";
 import { claudeHome, claudeSettingsPath, codexHome, codexHooksPath } from "./paths.js";
-import { searchMemories } from "./search.js";
+import { searchMemoriesWithOutcome } from "./search.js";
 import type { BrainStatus, OpenBrainOptions, PendingReview } from "./types.js";
 
 export const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
-const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
+export const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
 
 // Stable marker for the Claude Code SessionStart hook command. The adapter keys
 // idempotent settings.json merges off this substring, so it must not change.
@@ -54,7 +55,7 @@ export async function syncCodexAgent(options: OpenBrainOptions = {}, memoryMode?
   const file = await syncInstructionFile(
     codexHome(options),
     "AGENTS.md",
-    hookFirst ? codexMinimalBlock() : codexBlock(),
+    renderCodexInstructionBlock(hookFirst ? "hook" : "manual"),
     options
   );
   await syncCodexHooks(options, hookFirst);
@@ -258,7 +259,8 @@ function isTomlCompatibleJson(value: unknown): boolean {
 
 // Codex injects this JSON as developer context before each user prompt. The
 // hook is deliberately read-only and fail-open: malformed input, unavailable
-// brains, and retrieval failures all produce no output.
+// brains, and retrieval failures produce no context on stdout. Operational
+// failures have sanitized diagnostics on stderr.
 export async function runUserPromptSubmitHook(
   rawInput: string,
   options: OpenBrainOptions = {}
@@ -279,7 +281,7 @@ export async function runUserPromptSubmitHook(
     ) {
       return undefined;
     }
-    const results = await searchMemories(input.prompt, {
+    const outcome = await searchMemoriesWithOutcome(input.prompt, {
       ...options,
       cwd: input.cwd,
       confidence: "high",
@@ -288,9 +290,24 @@ export async function runUserPromptSubmitHook(
       limit: 3,
       quiet: true
     });
+    if (outcome.embeddingStatus === "disabled") {
+      console.error(
+        "openbrain: semantic embeddings are disabled; automatic memory injection is unavailable."
+      );
+      return undefined;
+    }
+    if (outcome.embeddingStatus === "failed") {
+      console.error("openbrain: semantic embeddings failed; automatic memory injection was skipped.");
+      return undefined;
+    }
+    if (outcome.dimensionMismatches > 0) {
+      console.error(
+        `openbrain: skipped ${outcome.dimensionMismatches} memories with outdated embeddings; run "openbrain index rebuild".`
+      );
+    }
     // FTS contributes recall, but only the existing vector-similarity threshold
     // is strong enough for automatic prompt injection.
-    const relevant = results.filter((result) => result.match !== "fts");
+    const relevant = outcome.results.filter((result) => result.match !== "fts");
     if (!relevant.length) {
       return undefined;
     }
@@ -301,13 +318,27 @@ export async function runUserPromptSubmitHook(
     return {
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext }
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof BrainUnavailableError) {
+      console.error(
+        error.resolution.unmatched === "disabled"
+          ? "openbrain: memory is disabled for this workspace; retrieval was skipped."
+          : "openbrain: no brain is assigned to this workspace; retrieval was skipped."
+      );
+      return undefined;
+    }
+    console.error("openbrain: memory retrieval failed; no context was injected.");
     return undefined;
   }
 }
 
 export async function syncClaudeAgent(options: OpenBrainOptions = {}, disableAutoMemory = false) {
-  const file = await syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
+  const file = await syncInstructionFile(
+    claudeHome(options),
+    "CLAUDE.md",
+    renderClaudeInstructionBlock(),
+    options
+  );
   // The CLAUDE.md block is advisory only. Install a SessionStart hook so Claude
   // Code actually runs daily dreaming and is reminded to search memory on every
   // session, without relying on the agent to follow the instructions.
@@ -516,6 +547,14 @@ ${OPENBRAIN_END}`;
 export async function codexManualGuide(options: OpenBrainOptions = {}) {
   const config = await loadConfig(options);
   return codexBlock(config.agents.codex.memoryMode === "hook");
+}
+
+export function renderCodexInstructionBlock(memoryMode: "hook" | "manual") {
+  return memoryMode === "hook" ? codexMinimalBlock() : codexBlock();
+}
+
+export function renderClaudeInstructionBlock() {
+  return codexBlock();
 }
 
 function codexBlock(hookFirst = false) {
