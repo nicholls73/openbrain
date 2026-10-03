@@ -2,12 +2,13 @@ import type { IndexedMemoryRow } from "./db.js";
 import { allRowsWithEmbeddings, decodeEmbedding, ftsSearch, openDatabase } from "./db.js";
 import { embedWithTimeout } from "./embeddings.js";
 import { cosine, excerpt, prepareOpenBrain, resolveEmbedder } from "./internal.js";
-import type {
-  SearchMemoriesOptions,
-  SearchMemoriesOutcome,
-  SearchResult,
-  StoredMemoryType
-} from "./types.js";
+import type { SearchMemoriesOptions, SearchResult, StoredMemoryType } from "./types.js";
+
+interface SearchMemoriesOutcome {
+  results: SearchResult[];
+  embeddingStatus: "available" | "disabled" | "failed";
+  dimensionMismatches: number;
+}
 
 export async function searchMemories(query: string, options: SearchMemoriesOptions = {}) {
   return (await searchMemoriesWithOutcome(query, options)).results;

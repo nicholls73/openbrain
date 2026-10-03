@@ -172,12 +172,6 @@ export interface SearchResult {
   match: "fts" | "vector" | "hybrid";
 }
 
-export interface SearchMemoriesOutcome {
-  results: SearchResult[];
-  embeddingStatus: "available" | "disabled" | "failed";
-  dimensionMismatches: number;
-}
-
 export interface SearchMemoriesOptions extends OpenBrainOptions {
   type?: StoredMemoryType;
   scope?: string;
