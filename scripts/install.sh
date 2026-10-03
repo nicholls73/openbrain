@@ -270,7 +270,7 @@ prepare_launcher() {
 #!/usr/bin/env bash
 exec node "$OPENBRAIN_INSTALL_DIR/dist/cli.js" "\$@"
 EOF
-  chmod +x "$LAUNCHER_TMP"
+  chmod 755 "$LAUNCHER_TMP"
 }
 
 validate_staged_cli() {
@@ -334,6 +334,8 @@ install_openbrain() {
   log "validating staged CLI"
   validate_staged_cli
   prepare_launcher
+  # Unpacking can restore archive permissions; normalize the published app root.
+  chmod 755 "$STAGING_DIR"
   publish_installation
 
   if [[ "$OPENBRAIN_SKIP_BIN" != "1" ]]; then

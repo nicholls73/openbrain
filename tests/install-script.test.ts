@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -135,14 +135,20 @@ describe("install script", () => {
     expect(script).toContain("installing it unverified");
   });
 
-  test("installs from a local source directory and creates an openbrain executable", async () => {
+  test("installs a real CLI and recovers its launcher and hooks after an interrupted swap", async () => {
     const root = await tempDir();
+    const failedUpdate = await prepareFailedUpdate(root, "install");
     const { installDir, binDir } = await installFromLocal(root);
 
     await expect(access(path.join(binDir, "openbrain"), constants.X_OK)).resolves.toBeUndefined();
     await expect(readFile(path.join(installDir, "package.json"), "utf8")).resolves.toContain(
       '"name": "@nicholls73/openbrain"'
     );
+
+    await rename(installDir, `${installDir}.backup.interrupted`);
+    await expect(
+      execFileAsync("bash", ["scripts/install.sh"], { cwd: repoRoot, env: failedUpdate.env })
+    ).rejects.toMatchObject({ code: 42 });
 
     const isolatedEnv = {
       ...process.env,
@@ -265,6 +271,8 @@ describe("install script", () => {
 
     await execFileAsync("bash", ["scripts/install.sh"], { cwd: repoRoot, env });
 
+    expect((await stat(installDir)).mode & 0o777).toBe(0o755);
+    expect((await stat(wrapperPath)).mode & 0o777).toBe(0o755);
     const { stdout } = await execFileAsync(wrapperPath, []);
     expect(stdout.trim()).toBe("new cli");
     await expect(readFile(path.join(installDir, "package.json"), "utf8")).resolves.toContain(
