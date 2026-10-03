@@ -51,18 +51,14 @@ async function directoryExists(dir: string) {
 export async function syncCodexAgent(options: OpenBrainOptions = {}, memoryMode?: "hook" | "manual") {
   const config = await loadConfig(options);
   const hookFirst = (memoryMode ?? config.agents.codex.memoryMode) === "hook";
-  const file = await syncCodexInstructions(options, hookFirst ? "hook" : "manual");
-  await syncCodexHooks(options, hookFirst);
-  return file;
-}
-
-async function syncCodexInstructions(options: OpenBrainOptions = {}, memoryMode: "hook" | "manual") {
-  return syncInstructionFile(
+  const file = await syncInstructionFile(
     codexHome(options),
     "AGENTS.md",
-    memoryMode === "hook" ? codexMinimalBlock() : codexBlock(),
+    hookFirst ? codexMinimalBlock() : codexBlock(),
     options
   );
+  await syncCodexHooks(options, hookFirst);
+  return file;
 }
 
 export async function refreshConfiguredAgentAdapters(options: OpenBrainOptions = {}) {
@@ -82,7 +78,12 @@ export async function refreshConfiguredAgentAdapters(options: OpenBrainOptions =
       if (managed.malformed) {
         refreshed.push({ agent: "codex", status: "incomplete" });
       } else if (managed.valid || hookInspection.owned) {
-        await syncCodexInstructions(options, config.agents.codex.memoryMode);
+        await syncInstructionFile(
+          codexHome(options),
+          "AGENTS.md",
+          config.agents.codex.memoryMode === "hook" ? codexMinimalBlock() : codexBlock(),
+          options
+        );
         refreshed.push({
           agent: "codex",
           status: hookInspection.problem ? "incomplete" : "refreshed"
@@ -105,7 +106,7 @@ export async function refreshConfiguredAgentAdapters(options: OpenBrainOptions =
       if (managed.malformed) {
         refreshed.push({ agent: "claude", status: "incomplete" });
       } else if (managed.valid || hookInspection.owned) {
-        await syncClaudeInstructions(options);
+        await syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
         refreshed.push({
           agent: "claude",
           status: hookInspection.problem ? "incomplete" : "refreshed"
@@ -117,10 +118,6 @@ export async function refreshConfiguredAgentAdapters(options: OpenBrainOptions =
   }
 
   return refreshed;
-}
-
-async function syncClaudeInstructions(options: OpenBrainOptions = {}) {
-  return syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
 }
 
 function inspectManagedBlock(text: string | undefined) {
@@ -453,7 +450,7 @@ export async function runUserPromptSubmitHook(
 }
 
 export async function syncClaudeAgent(options: OpenBrainOptions = {}, disableAutoMemory = false) {
-  const file = await syncClaudeInstructions(options);
+  const file = await syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
   // The CLAUDE.md block is advisory only. Install a SessionStart hook so Claude
   // Code actually runs daily dreaming and is reminded to search memory on every
   // session, without relying on the agent to follow the instructions.
