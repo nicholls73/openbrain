@@ -32,7 +32,7 @@ export function enforceDimensions(provider: EmbeddingProvider, dimensions: numbe
       if (embedding && embedding.length !== dimensions) {
         if (!warned) {
           warned = true;
-          console.info(
+          console.warn(
             `openbrain: the embedding model returned ${embedding.length} dimensions but ` +
               `config.embeddings.dimensions is ${dimensions}; ignoring these embeddings. ` +
               `Update embeddings.dimensions to match the model, then run "openbrain index rebuild".`

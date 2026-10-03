@@ -270,8 +270,13 @@ export async function runUserPromptSubmitHook(
     }
   | undefined
 > {
+  let input: unknown;
   try {
-    const input = JSON.parse(rawInput) as unknown;
+    input = JSON.parse(rawInput) as unknown;
+  } catch {
+    return undefined;
+  }
+  try {
     if (
       !isRecord(input) ||
       input.hook_event_name !== "UserPromptSubmit" ||

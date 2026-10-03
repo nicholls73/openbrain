@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { updateConfig } from "../src/config.js";
+import { enforceDimensions } from "../src/embeddings.js";
 import { addMemory, initOpenBrain, runUserPromptSubmitHook } from "../src/openbrain.js";
 import type { EmbeddingProvider, OpenBrainOptions } from "../src/types.js";
 
@@ -32,6 +33,28 @@ const WORKING_EMBEDDER: EmbeddingProvider = {
 };
 
 describe("UserPromptSubmit diagnostics", () => {
+  test("keeps malformed hook input silent", async () => {
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await runUserPromptSubmitHook("{invalid JSON")).toBeUndefined();
+    expect(diagnostic).not.toHaveBeenCalled();
+  });
+
+  test("keeps provider dimension warnings off hook stdout", async () => {
+    const { home, options } = await fixture(enforceDimensions(WORKING_EMBEDDER, 3));
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(await runUserPromptSubmitHook(input(path.join(home, "workspace")), options)).toBeUndefined();
+    expect(info).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledOnce();
+    expect(diagnostic).toHaveBeenCalledWith(
+      "openbrain: semantic embeddings failed; automatic memory injection was skipped."
+    );
+  });
+
   test("keeps successful no-match retrieval silent", async () => {
     const { home, options } = await fixture(WORKING_EMBEDDER);
     const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
