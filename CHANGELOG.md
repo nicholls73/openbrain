@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.0](https://github.com/nicholls73/openbrain/compare/v0.12.1...v0.13.0) (2026-10-03)
+
+
+### Features
+
+* expose explicit memory relationships as Obsidian links ([#173](https://github.com/nicholls73/openbrain/issues/173)) ([8d71dde](https://github.com/nicholls73/openbrain/commit/8d71dde9b8b4f7b8a408b3af5f0725d2caf717c2))
+
+
+### Bug Fixes
+
+* clarify confidence required for automatic recall ([#172](https://github.com/nicholls73/openbrain/issues/172)) ([a2ed286](https://github.com/nicholls73/openbrain/commit/a2ed28659a4b47dcce968d08966403f9ed46071d))
+* diagnose degraded hooks and stale agent installations ([#174](https://github.com/nicholls73/openbrain/issues/174)) ([19569d9](https://github.com/nicholls73/openbrain/commit/19569d9bf6a1f472eafad9e7eb38ea42f5c1e00d))
+* preserve working CLI during failed installs ([#171](https://github.com/nicholls73/openbrain/issues/171)) ([a0c5c24](https://github.com/nicholls73/openbrain/commit/a0c5c24a2ff826edf2a8cf86e3ab73febfd07077))
+* refresh configured agent instructions after updates ([#175](https://github.com/nicholls73/openbrain/issues/175)) ([39d07ca](https://github.com/nicholls73/openbrain/commit/39d07ca76aebd98257c746b09b91707cce56f81e))
+
 ## [0.12.1](https://github.com/nicholls73/openbrain/compare/v0.12.0...v0.12.1) (2026-10-02)
 
 
