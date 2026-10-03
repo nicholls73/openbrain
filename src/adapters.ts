@@ -51,14 +51,160 @@ async function directoryExists(dir: string) {
 export async function syncCodexAgent(options: OpenBrainOptions = {}, memoryMode?: "hook" | "manual") {
   const config = await loadConfig(options);
   const hookFirst = (memoryMode ?? config.agents.codex.memoryMode) === "hook";
-  const file = await syncInstructionFile(
-    codexHome(options),
-    "AGENTS.md",
-    hookFirst ? codexMinimalBlock() : codexBlock(),
-    options
-  );
+  const file = await syncCodexInstructions(options, hookFirst ? "hook" : "manual");
   await syncCodexHooks(options, hookFirst);
   return file;
+}
+
+async function syncCodexInstructions(options: OpenBrainOptions = {}, memoryMode: "hook" | "manual") {
+  return syncInstructionFile(
+    codexHome(options),
+    "AGENTS.md",
+    memoryMode === "hook" ? codexMinimalBlock() : codexBlock(),
+    options
+  );
+}
+
+export async function refreshConfiguredAgentAdapters(options: OpenBrainOptions = {}) {
+  const config = await loadConfig(options);
+  const refreshed: Array<{ agent: "codex" | "claude"; status: "refreshed" | "skipped" | "incomplete" }> = [];
+
+  if (!config.agents.codex.enabled) {
+    refreshed.push({ agent: "codex", status: "skipped" });
+  } else {
+    try {
+      const instructions = path.join(codexHome(options), "AGENTS.md");
+      const existing = await readOptionalText(instructions);
+      const managed = inspectManagedBlock(existing);
+      const hookFile = codexHooksPath(options);
+      const rawHooks = await readOptionalText(hookFile);
+      const hookInspection = inspectCodexHooks(rawHooks);
+      if (managed.malformed) {
+        refreshed.push({ agent: "codex", status: "incomplete" });
+      } else if (managed.valid || hookInspection.owned) {
+        await syncCodexInstructions(options, config.agents.codex.memoryMode);
+        refreshed.push({
+          agent: "codex",
+          status: hookInspection.problem ? "incomplete" : "refreshed"
+        });
+      }
+    } catch {
+      refreshed.push({ agent: "codex", status: "incomplete" });
+    }
+  }
+
+  if (!config.agents.claude.enabled) {
+    refreshed.push({ agent: "claude", status: "skipped" });
+  } else {
+    try {
+      const instructions = path.join(claudeHome(options), "CLAUDE.md");
+      const existing = await readOptionalText(instructions);
+      const managed = inspectManagedBlock(existing);
+      const rawSettings = await readOptionalText(claudeSettingsPath(options));
+      const hookInspection = inspectClaudeSettings(rawSettings);
+      if (managed.malformed) {
+        refreshed.push({ agent: "claude", status: "incomplete" });
+      } else if (managed.valid || hookInspection.owned) {
+        await syncClaudeInstructions(options);
+        refreshed.push({
+          agent: "claude",
+          status: hookInspection.problem ? "incomplete" : "refreshed"
+        });
+      }
+    } catch {
+      refreshed.push({ agent: "claude", status: "incomplete" });
+    }
+  }
+
+  return refreshed;
+}
+
+async function syncClaudeInstructions(options: OpenBrainOptions = {}) {
+  return syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
+}
+
+function inspectManagedBlock(text: string | undefined) {
+  const beginCount = text ? text.split(OPENBRAIN_BEGIN).length - 1 : 0;
+  const endCount = text ? text.split(OPENBRAIN_END).length - 1 : 0;
+  const beginAt = text?.indexOf(OPENBRAIN_BEGIN) ?? -1;
+  const endAt = text?.indexOf(OPENBRAIN_END) ?? -1;
+  const valid = beginCount === 1 && endCount === 1 && endAt > beginAt;
+  return { valid, malformed: (beginCount > 0 || endCount > 0) && !valid };
+}
+
+function readOptionalText(file: string) {
+  return readFile(file, "utf8").catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  });
+}
+
+function inspectCodexHooks(raw: string | undefined) {
+  if (raw === undefined) {
+    return { owned: false, problem: null as string | null };
+  }
+  let parsed: unknown;
+  try {
+    parsed = raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    return { owned: false, problem: "hooks.json is not valid JSON" };
+  }
+  const problem = codexHooksShapeProblem(parsed);
+  return { owned: hasCodexOwnedHook(parsed), problem };
+}
+
+function hasCodexOwnedHook(value: unknown) {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const hookSettings = value.hooks;
+  if (!isRecord(hookSettings)) {
+    return false;
+  }
+  return ["UserPromptSubmit", "SessionStart"].some((event) => {
+    const groups = hookSettings[event];
+    return (
+      Array.isArray(groups) &&
+      groups.some(
+        (group) =>
+          isRecord(group) &&
+          Array.isArray(group.hooks) &&
+          group.hooks.some(
+            (hook) =>
+              isRecord(hook) &&
+              hook.type === "command" &&
+              (hook.command === CODEX_HOOK_COMMAND || hook.command === CODEX_DREAM_HOOK_COMMAND)
+          )
+      )
+    );
+  });
+}
+
+function inspectClaudeSettings(raw: string | undefined) {
+  if (raw === undefined) {
+    return { owned: false, problem: null as string | null };
+  }
+  let parsed: unknown;
+  try {
+    parsed = raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    return { owned: false, problem: "settings.json is not valid JSON" };
+  }
+  const problem = claudeSettingsShapeProblem(parsed);
+  const groups = isRecord(parsed) && isRecord(parsed.hooks) ? parsed.hooks.SessionStart : undefined;
+  const owned =
+    Array.isArray(groups) &&
+    groups.some(
+      (group) =>
+        isRecord(group) &&
+        Array.isArray(group.hooks) &&
+        group.hooks.some(
+          (hook) => isRecord(hook) && hook.type === "command" && hook.command === CLAUDE_HOOK_COMMAND
+        )
+    );
+  return { owned, problem };
 }
 
 // Merge a point-of-use retrieval hook into Codex's global hooks without
@@ -307,7 +453,7 @@ export async function runUserPromptSubmitHook(
 }
 
 export async function syncClaudeAgent(options: OpenBrainOptions = {}, disableAutoMemory = false) {
-  const file = await syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
+  const file = await syncClaudeInstructions(options);
   // The CLAUDE.md block is advisory only. Install a SessionStart hook so Claude
   // Code actually runs daily dreaming and is reminded to search memory on every
   // session, without relying on the agent to follow the instructions.

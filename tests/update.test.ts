@@ -89,7 +89,7 @@ describe("update notice", () => {
     expect(calls).toBe(1);
   });
 
-  test("updates npm installs and runs doctor with the updated CLI", async () => {
+  test("refreshes adapters and runs doctor with the updated npm CLI", async () => {
     const packageRoot = await tempHome();
     const commands: Array<{ command: string; args: string[]; env: NodeJS.ProcessEnv }> = [];
     const plan = await planUpdate({
@@ -108,6 +108,7 @@ describe("update notice", () => {
     expect(plan.method).toBe("npm");
     expect(commands.map(({ command, args }) => [command, args])).toEqual([
       ["npm", ["install", "--global", "@nicholls73/openbrain@latest"]],
+      [process.execPath, ["/installed/openbrain/dist/cli.js", "agents", "refresh"]],
       [process.execPath, ["/installed/openbrain/dist/cli.js", "doctor"]]
     ]);
   });
@@ -141,6 +142,35 @@ describe("update notice", () => {
         OPENBRAIN_SKIP_BIN: "1"
       }
     });
+    expect(commands.slice(1).map(({ command, args }) => [command, args])).toEqual([
+      [process.execPath, ["/installed/openbrain/dist/cli.js", "agents", "refresh"]],
+      [process.execPath, ["/installed/openbrain/dist/cli.js", "doctor"]]
+    ]);
+  });
+
+  test("reports a completed software update with incomplete adapter refresh and recovery", async () => {
+    const commands: string[][] = [];
+    await expect(
+      applyUpdate(
+        {
+          currentVersion: "0.1.0",
+          latestVersion: "0.1.1",
+          method: "npm",
+          packageRoot: await tempHome()
+        },
+        {
+          cliPath: "/installed/openbrain/dist/cli.js",
+          run: async (_command, args) => {
+            commands.push(args);
+            if (args.includes("refresh")) {
+              throw new Error("refresh failed");
+            }
+          }
+        }
+      )
+    ).rejects.toThrow(/software updated[\s\S]*openbrain agents refresh/i);
+    expect(commands[0]).toEqual(["install", "--global", "@nicholls73/openbrain@latest"]);
+    expect(commands[1]).toEqual(["/installed/openbrain/dist/cli.js", "agents", "refresh"]);
   });
 
   test("refuses to replace a source checkout", async () => {

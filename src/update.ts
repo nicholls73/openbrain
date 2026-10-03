@@ -105,11 +105,17 @@ export async function applyUpdate(plan: UpdatePlan, options: ApplyUpdateOptions 
   } else {
     await run("npm", ["install", "--global", NPM_PACKAGE], process.env);
   }
-  await run(
-    process.execPath,
-    [options.cliPath ?? fileURLToPath(new URL("./cli.js", import.meta.url)), "doctor"],
-    process.env
-  );
+  // Start the replaced CLI so refreshed instructions come from the new version,
+  // not this updater process's already-loaded adapter module.
+  const updatedCli = options.cliPath ?? fileURLToPath(new URL("./cli.js", import.meta.url));
+  try {
+    await run(process.execPath, [updatedCli, "agents", "refresh"], process.env);
+  } catch {
+    throw new Error(
+      'OpenBrain software updated, but integration refresh failed. Run "openbrain agents refresh", then "openbrain doctor".'
+    );
+  }
+  await run(process.execPath, [updatedCli, "doctor"], process.env);
 }
 
 export function isNewerVersion(candidate: string, current: string) {

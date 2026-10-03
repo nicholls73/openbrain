@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
+import { refreshConfiguredAgentAdapters } from "./adapters.js";
 import { renderCliError } from "./cli-error.js";
 import { loadConfig, updateConfig } from "./config.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
@@ -82,6 +83,22 @@ async function main(argv: string[]) {
 
   if (area === "agents" && command === "guide" && rest[0] === "codex") {
     console.log(await codexManualGuide());
+    return;
+  }
+
+  if (area === "agents" && command === "refresh") {
+    const results = await refreshConfiguredAgentAdapters();
+    if (!results.length) {
+      console.log("No configured agent instructions to refresh.");
+    }
+    for (const result of results) {
+      console.log(`${result.agent}: ${result.status}`);
+    }
+    if (results.some((result) => result.status === "incomplete")) {
+      throw new Error(
+        'Agent instruction refresh is incomplete. Run "openbrain doctor" for details, correct the reported configuration, then rerun "openbrain agents refresh".'
+      );
+    }
     return;
   }
 
@@ -818,6 +835,7 @@ function usage() {
   openbrain update [--yes]
   openbrain setup [--brain-scope default|paths] [--path-rule <brain=/path>] [--codex yes|no] [--claude yes|no] [--disable-claude-auto-memory yes|no]
       (agent integrations are auto-detected; --codex/--claude override detection)
+  openbrain agents refresh
   openbrain agents sync codex [--memory-mode hook|manual]
   openbrain agents sync claude [--disable-claude-auto-memory yes|no]
   openbrain agents guide codex
