@@ -557,12 +557,21 @@ After meaningful work, record useful observations. When an observation is
 evidence rather than an already-established durable conclusion, save it as a
 low-confidence episode so recurring evidence can accumulate:
 
+Durable \`memory add\` defaults to medium confidence. Medium- and
+low-confidence durable memories remain available to manual search, but Codex
+automatically injects only relevant, unexpired, non-private, high-confidence
+durable memories. Use \`--confidence high\` only for established, supported
+conclusions; keep uncertain durable guidance at medium confidence. Do not
+raise confidence just to make a memory inject. Promoting an episode creates a
+medium-confidence durable memory, so promotion alone does not make it inject
+automatically.
+
 \`\`\`bash
 openbrain memory add --type episode --confidence low --text "..."
-openbrain memory add --type workflow --text "..."
-openbrain memory add --type workspace --text "..."
-openbrain memory add --type preference --text "..."
-openbrain memory add --type decision --text "..."
+openbrain memory add --type workflow --confidence high --text "..."
+openbrain memory add --type workspace --confidence high --text "..."
+openbrain memory add --type preference --confidence high --text "..."
+openbrain memory add --type decision --confidence high --text "..."
 openbrain memory add --type episode --promote-as workflow --text "..."
 openbrain memory promote <episode-id> --type workflow --text "..."
 \`\`\`
