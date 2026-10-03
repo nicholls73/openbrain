@@ -6,7 +6,7 @@ One local brain for every coding agent on your machine.
 
 You switch between Codex, Claude Code, OpenCode, and whatever comes next. They all need the same context. OpenBrain gives them one shared memory layer: readable Markdown as the source of truth, SQLite as a rebuildable search index, and local embeddings when semantic search helps.
 
-No hosted memory API. No SaaS account. No secret sync. Just files under `~/.openbrain/`.
+OpenBrain has no hosted memory service. It works without an account by default, storing readable Markdown and a rebuildable SQLite index under `~/.openbrain/`. You can also store a brain in an existing Obsidian vault or use Obsidian Sync with an Obsidian account; see [Brain storage](docs/brain-storage.md).
 
 ## Install
 
@@ -71,9 +71,10 @@ See [Brain storage](docs/brain-storage.md) to connect a brain to Obsidian Sync o
 - If embeddings fail or are slow, FTS still returns results.
 - Memories stay readable as Markdown.
 - Brain routing can keep different contexts separate by filesystem path.
-- Codex runs daily maintenance and injects up to three relevant, high-confidence durable memories from its `UserPromptSubmit` hook; review and trust this user-installed hook with `/hooks` in Codex.
+- Codex's default hooks run daily maintenance at session start and inject up to three relevant, high-confidence durable memories before each prompt. Review these user-installed hooks with `/hooks` in Codex.
 - The Codex instruction block stays short by default. Use `openbrain agents sync codex --memory-mode manual` to restore agent-managed search and the detailed instructions.
-- Claude Code gets a `SessionStart` hook that dreams and reminds the agent to search memory.
+- Claude Code gets a `SessionStart` hook that runs daily maintenance and reminds the agent to search memory.
+- Obsidian Sync keeps Markdown brain data in the vault and the rebuildable search index local; OpenBrain manages continuous synchronization as a background service. See [Brain storage](docs/brain-storage.md) for setup and storage layouts.
 - Episodes can be marked as promotion candidates or discovered from recurring evidence; `dream` writes review files but does not create durable memory automatically.
 
 ## Fallback Installer
@@ -138,9 +139,9 @@ After this, configured agents know when to search and write memories.
 
 ## Agent Use
 
-OpenBrain is not meant to be a daily human note-taking CLI. Humans install it, choose containers, and inspect state when needed. Agents use it while they work.
+OpenBrain is for agents to use during work, not a daily human note-taking CLI. People install it, choose brain containers, and inspect state when needed.
 
-At task start, the agent quietly checks whether the active brain has already dreamed today, then searches for relevant memory. After meaningful work, the agent writes concise memories back to the right container. You should not need to run memory commands directly during normal use.
+After setup, Codex's default hooks run daily maintenance at session start and retrieve relevant durable memories before each prompt. The short Codex instruction block prevents duplicate manual search and maintenance. Claude Code's session-start hook runs daily maintenance and tells the agent to search memory. If Codex uses `--memory-mode manual`, its detailed instructions tell the agent to run maintenance and search directly. After meaningful work, agents record useful observations and confirm each memory write succeeds. You should not need to run memory commands during normal use.
 
 ### Memory Quality
 
