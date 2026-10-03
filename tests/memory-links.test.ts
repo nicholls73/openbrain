@@ -163,6 +163,29 @@ describe("generated Obsidian links", () => {
     );
   });
 
+  test("omits a target deleted outside OpenBrain before index rebuild", async () => {
+    const config = options(await tempHome());
+    const target = await addMemory({ type: "workflow", text: "External deletion target." }, config);
+    const source = await addMemory(
+      { type: "decision", text: "Source decision.", metadata: { relatedTo: [target.id] } },
+      config
+    );
+    expect(await readFile(source.path, "utf8")).toContain("[Related: External deletion target]");
+    await rm(target.path);
+    await updateMemory({ id: source.id, text: "Updated source decision." }, config);
+    expect(await readFile(source.path, "utf8")).not.toContain("[Related: External deletion target]");
+  });
+
+  test("prunes unindexed malformed episodes using the filename retention fallback", async () => {
+    const home = await tempHome();
+    const config = options(home);
+    await addMemory({ type: "decision", text: "Keep this durable decision." }, config);
+    const expired = path.join(home, "brains", "main", "episodes", "2020-01-01-malformed.md");
+    await writeFile(expired, "---\nid: malformed\n---\n\nOld observation.\n");
+    expect(await pruneEpisodes(config)).toContain(expired);
+    await expect(readFile(expired)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   test("removes promotion links when episode pruning deletes the target", async () => {
     const home = await tempHome();
     const beforeExpiry = options(home);

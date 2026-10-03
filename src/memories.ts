@@ -251,6 +251,10 @@ export async function refreshGeneratedLinks(
   } finally {
     db.close();
   }
+  // Files can be deleted in Obsidian before the next index rebuild.
+  records = (
+    await Promise.all(records.map(async (record) => ((await exists(record.path)) ? record : undefined)))
+  ).filter((record) => record !== undefined);
   const changed = changedIds ? new Set(changedIds) : undefined;
   const affected = changed
     ? records.filter(

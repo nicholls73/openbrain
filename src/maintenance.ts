@@ -127,12 +127,11 @@ export async function pruneEpisodes(options: OpenBrainOptions = {}): Promise<str
         continue;
       }
       const row = rowsByPath.get(filePath);
-      const id = row?.id ?? (await parseMemoryFile(filePath, config.retentionDays)).id;
       await rm(filePath, { force: true });
       if (row) {
         deleteIndexedMemory(db, row.id);
+        prunedIds.push(row.id);
       }
-      prunedIds.push(id);
       pruned.push(filePath);
     }
   } finally {
