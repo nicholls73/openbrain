@@ -5,7 +5,20 @@ import { cosine, excerpt, prepareOpenBrain, resolveEmbedder } from "./internal.j
 import { parseRelatedTo } from "./markdown.js";
 import type { SearchMemoriesOptions, SearchResult, StoredMemoryType } from "./types.js";
 
+interface SearchMemoriesOutcome {
+  results: SearchResult[];
+  embeddingStatus: "available" | "disabled" | "failed";
+  dimensionMismatches: number;
+}
+
 export async function searchMemories(query: string, options: SearchMemoriesOptions = {}) {
+  return (await searchMemoriesWithOutcome(query, options)).results;
+}
+
+export async function searchMemoriesWithOutcome(
+  query: string,
+  options: SearchMemoriesOptions = {}
+): Promise<SearchMemoriesOutcome> {
   const { config, options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
   const db = await openDatabase(scopedOptions, { readonly: true });
   try {
@@ -45,6 +58,8 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
       config.embeddings.timeoutMs,
       config.embeddings.loadTimeoutMs
     );
+    const embeddingStatus = queryEmbedding ? "available" : provider.disabled ? "disabled" : "failed";
+    let dimensionMismatches = 0;
     if (!queryEmbedding && !provider.disabled && !options.quiet) {
       // Degrading to FTS-only used to be silent, which made semantic search
       // look enabled while it never actually ran.
@@ -58,7 +73,6 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
       // can never match (cosine returns 0). That used to be silent, so swapping
       // the embedding model quietly disabled semantic search for every existing
       // memory. Skip those rows explicitly and tell the user to re-embed.
-      let dimensionMismatches = 0;
       const vectorRows = allRowsWithEmbeddings(db)
         .filter((row) => rowMatchesSearchOptions(row, options, now))
         .map((row) => ({ row, embedding: decodeEmbedding(row.embedding) }))
@@ -89,7 +103,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
       fuse(vectorRows, "vector");
     }
 
-    return Array.from(fused.values())
+    const results = Array.from(fused.values())
       .sort((left, right) => right.score - left.score)
       .slice(0, limit)
       .map(
@@ -111,6 +125,7 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
           match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")
         })
       );
+    return { results, embeddingStatus, dimensionMismatches };
   } finally {
     db.close();
   }

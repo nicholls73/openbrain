@@ -168,9 +168,9 @@ describe("enforceDimensions", () => {
     try {
       expect(await provider.embed("first")).toBeNull();
       expect(await provider.embed("second")).toBeNull();
-      expect(info).toHaveBeenCalledTimes(1);
-      expect(String(info.mock.calls[0]?.[0])).toContain("embeddings.dimensions");
-      expect(warn).not.toHaveBeenCalled();
+      expect(info).not.toHaveBeenCalled();
+      expect(String(warn.mock.calls[0]?.[0])).toContain("embeddings.dimensions");
+      expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       info.mockRestore();
       warn.mockRestore();

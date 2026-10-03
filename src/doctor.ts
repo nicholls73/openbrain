@@ -1,21 +1,23 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { claudeSettingsShapeProblem, codexHooksShapeProblem } from "./adapters.js";
+import {
+  claudeSettingsShapeProblem,
+  codexHooksShapeProblem,
+  OPENBRAIN_BEGIN,
+  OPENBRAIN_END,
+  renderClaudeInstructionBlock,
+  renderCodexInstructionBlock
+} from "./adapters.js";
 import { loadConfig } from "./config.js";
 import { listMemoryRows, openDatabase } from "./db.js";
 import { createEmbeddingProvider, embedWithTimeout } from "./embeddings.js";
 import { prepareOpenBrain } from "./internal.js";
 import { findConsolidationGroups, listPendingReviews } from "./maintenance.js";
 import { type ObsidianSyncServiceManager, obsidianSyncServiceManager } from "./obsidian-service.js";
-import {
-  CLAUDE_HOOK_COMMAND,
-  CODEX_HOOK_COMMAND,
-  getBrainStatus,
-  memoryFiles,
-  OPENBRAIN_BEGIN
-} from "./openbrain.js";
+import { CLAUDE_HOOK_COMMAND, CODEX_HOOK_COMMAND, getBrainStatus, memoryFiles } from "./openbrain.js";
 import { claudeHome, claudeSettingsPath, codexHome, codexHooksPath, configPath, dreamsDir } from "./paths.js";
 import type { OpenBrainConfig, OpenBrainOptions } from "./types.js";
 import { fetchLatestVersion, isNewerVersion, readCurrentVersion, UPDATE_COMMAND } from "./update.js";
@@ -91,7 +93,14 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   await embeddingsCheck(checks, config, options);
 
   if (config.agents.codex.enabled) {
-    checks.push(await adapterCheck("codex adapter", path.join(codexHome(options), "AGENTS.md"), "codex"));
+    checks.push(
+      await adapterCheck(
+        "codex adapter",
+        path.join(codexHome(options), "AGENTS.md"),
+        "codex",
+        renderCodexInstructionBlock(config.agents.codex.memoryMode)
+      )
+    );
     if (config.agents.codex.memoryMode === "manual") {
       const hook = await codexHookCheck(options);
       if (hook.detail.includes("UserPromptSubmit hook missing")) {
@@ -120,7 +129,14 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
     }
   }
   if (config.agents.claude.enabled) {
-    checks.push(await adapterCheck("claude adapter", path.join(claudeHome(options), "CLAUDE.md"), "claude"));
+    checks.push(
+      await adapterCheck(
+        "claude adapter",
+        path.join(claudeHome(options), "CLAUDE.md"),
+        "claude",
+        renderClaudeInstructionBlock()
+      )
+    );
     const hook = await claudeHookCheck(options);
     checks.push(hook, claudeEnforcementCheck(hook));
     checks.push(await claudeAutoMemoryCheck(options));
@@ -404,11 +420,24 @@ async function embeddingsCheck(checks: DoctorCheck[], config: OpenBrainConfig, o
   });
 }
 
-async function adapterCheck(name: string, file: string, agent: string): Promise<DoctorCheck> {
+async function adapterCheck(
+  name: string,
+  file: string,
+  agent: string,
+  expectedBlock: string
+): Promise<DoctorCheck> {
   try {
     const raw = await readFile(file, "utf8");
-    if (raw.includes(OPENBRAIN_BEGIN)) {
+    if (hasCurrentManagedBlock(raw, expectedBlock)) {
       return { status: "ok", name, detail: `OpenBrain block present in ${file}` };
+    }
+    if (raw.includes(OPENBRAIN_BEGIN)) {
+      return {
+        status: "warn",
+        name,
+        detail: `OpenBrain block in ${file} is outdated`,
+        hint: `openbrain agents sync ${agent}`
+      };
     }
     return {
       status: "warn",
@@ -419,6 +448,15 @@ async function adapterCheck(name: string, file: string, agent: string): Promise<
   } catch {
     return { status: "warn", name, detail: `${file} not found`, hint: `openbrain agents sync ${agent}` };
   }
+}
+
+function hasCurrentManagedBlock(raw: string, expected: string) {
+  if (raw.split(OPENBRAIN_BEGIN).length !== 2 || raw.split(OPENBRAIN_END).length !== 2) {
+    return false;
+  }
+  const start = raw.indexOf(OPENBRAIN_BEGIN);
+  const end = raw.indexOf(OPENBRAIN_END, start + OPENBRAIN_BEGIN.length);
+  return end >= 0 && raw.slice(start, end + OPENBRAIN_END.length) === expected;
 }
 
 async function claudeHookCheck(options: OpenBrainOptions): Promise<DoctorCheck> {
@@ -704,6 +742,9 @@ async function claudeAutoMemoryCheck(options: OpenBrainOptions): Promise<DoctorC
   };
 }
 
+const LAUNCHER_TIMEOUT_MS = 2000;
+const LAUNCHER_MAX_OUTPUT_BYTES = 16 * 1024;
+
 async function pathCheck(): Promise<DoctorCheck> {
   for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
     if (!dir) {
@@ -711,8 +752,43 @@ async function pathCheck(): Promise<DoctorCheck> {
     }
     const candidate = path.join(dir, "openbrain");
     try {
+      if (!(await stat(candidate)).isFile()) {
+        continue;
+      }
       await access(candidate, constants.X_OK);
-      return { status: "ok", name: "path", detail: candidate };
+      const result = spawnSync(candidate, ["version"], {
+        encoding: "utf8",
+        timeout: LAUNCHER_TIMEOUT_MS,
+        killSignal: "SIGKILL",
+        maxBuffer: LAUNCHER_MAX_OUTPUT_BYTES,
+        windowsHide: true
+      });
+      const launchError = result.error as NodeJS.ErrnoException | undefined;
+      if (launchError?.code === "ETIMEDOUT") {
+        return {
+          status: "warn",
+          name: "path",
+          detail: `${candidate} did not finish the version check within ${LAUNCHER_TIMEOUT_MS} ms`,
+          hint: "Reinstall OpenBrain, then run openbrain doctor again."
+        };
+      }
+      if (launchError?.code === "ENOBUFS") {
+        return {
+          status: "warn",
+          name: "path",
+          detail: `${candidate} exceeded the version check output limit`,
+          hint: "Reinstall OpenBrain, then run openbrain doctor again."
+        };
+      }
+      if (result.error || result.status !== 0 || !result.stdout?.trim()) {
+        return {
+          status: "warn",
+          name: "path",
+          detail: `${candidate} failed the version check`,
+          hint: "Reinstall OpenBrain, then run openbrain doctor again."
+        };
+      }
+      return { status: "ok", name: "path", detail: `launcher responds to version (${candidate})` };
     } catch {
       // Keep scanning.
     }
