@@ -69,7 +69,7 @@ export async function createMcpServer() {
     "memory_add",
     {
       description:
-        "Record a memory after meaningful work. Capture useful observations as low-confidence episodes when they are evidence rather than already-established conclusions; recurring episodes can be proposed for promotion during dreaming. Use durable types (preference, workflow, workspace, decision) only for guidance that stays useful across future tasks. Never store secrets or one-off details like branch names or commit IDs. If the result reports duplicateOf, fold the fact into that existing memory with memory_update and delete this one.",
+        "Record a memory after meaningful work. Capture useful observations as low-confidence episodes when they are evidence rather than already-established conclusions; recurring episodes can be proposed for promotion during dreaming. Durable memories default to medium confidence; Codex automatically injects only relevant, unexpired, non-private, high-confidence durable memories. Use high confidence only for established, supported conclusions; keep uncertain durable guidance at medium confidence. Use durable types (preference, workflow, workspace, decision) only for guidance that stays useful across future tasks. Never store secrets or one-off details like branch names or commit IDs. If the result reports duplicateOf, fold the fact into that existing memory with memory_update and delete this one.",
       inputSchema: {
         type: memoryType,
         text: z.string(),
@@ -112,7 +112,7 @@ export async function createMcpServer() {
     "memory_promote",
     {
       description:
-        "Promote an episode into a durable memory of the given type with rewritten text. Use when acting on a dream promotion-candidates review. Read the episode's source text first; never promote automatically.",
+        "Promote an episode into a medium-confidence durable memory of the given type with rewritten text. Codex automatically injects only relevant, unexpired, non-private, high-confidence durable memories, so promotion alone does not make a memory inject automatically. Use when acting on a dream promotion-candidates review. Read the episode's source text first; never promote automatically.",
       inputSchema: { episodeId: z.string(), type: durableMemoryType, text: z.string() }
     },
     ({ episodeId, type, text }) => toolResult(() => promoteMemory({ episodeId, type, text }))

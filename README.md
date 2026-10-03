@@ -153,6 +153,8 @@ Good durable memories include:
 
 During normal work, record a useful observation as a low-confidence `episode` when it is evidence rather than an already-established durable conclusion. This lets recurring evidence accumulate for review during dreaming. Episodes also hold short-lived handoff context and fast-changing facts; durable memories are conclusions. Avoid turning branch names, PR numbers, commit IDs, stale local state, exact files touched, copied fixture values, prior implementation shape, or one-off debugging details into durable memories.
 
+Durable `memory add` defaults to `medium` confidence. Medium- and low-confidence durable memories remain available to manual search, while Codex automatically injects only relevant, unexpired, non-private, high-confidence durable memories. Use `--confidence high` only for established, supported conclusions; keep uncertain guidance at medium. Promoting an episode creates a medium-confidence durable memory and does not make it inject automatically.
+
 Each memory can carry metadata in Markdown frontmatter:
 
 - `source`: where the memory came from, default `agent`.

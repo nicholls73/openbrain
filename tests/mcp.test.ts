@@ -75,6 +75,14 @@ describe("OpenBrain MCP server", () => {
     ]);
     const search = tools.find((tool) => tool.name === "memory_search");
     expect(search?.description).toContain("before starting a task");
+    const add = tools.find((tool) => tool.name === "memory_add");
+    expect(add?.description).toContain("default to medium confidence");
+    expect(add?.description).toContain(
+      "only relevant, unexpired, non-private, high-confidence durable memories"
+    );
+    const promote = tools.find((tool) => tool.name === "memory_promote");
+    expect(promote?.description).toContain("medium-confidence durable memory");
+    expect(promote?.description).toContain("promotion alone does not make a memory inject automatically");
   });
 
   test("roundtrips memory_add and memory_search", async () => {
