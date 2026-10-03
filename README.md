@@ -25,7 +25,9 @@ OpenBrain checks for new versions but never installs them silently. Update expli
 openbrain update
 ```
 
-The command shows the version change, asks for confirmation, uses npm or the verified fallback installer to match the existing installation, then runs `openbrain doctor`. Use `--yes` only after the user has already approved a non-interactive update.
+The command shows the version change, asks for confirmation, uses npm or the verified fallback installer to match the existing installation, refreshes instructions for enabled, already-configured agents, then runs `openbrain doctor`. Existing hooks, manual/hook mode, and consent settings are preserved. Use `--yes` only after the user has already approved a non-interactive update.
+
+When updating from an older release that does not refresh instructions automatically, run `openbrain agents refresh` once after updating. This is also the recovery command if an update reports an incomplete instruction refresh.
 
 You can also point a coding agent at this repository and ask it to install OpenBrain, or paste this more explicit prompt into Codex, Claude Code, OpenCode, or another coding agent:
 

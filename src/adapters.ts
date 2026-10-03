@@ -62,6 +62,149 @@ export async function syncCodexAgent(options: OpenBrainOptions = {}, memoryMode?
   return file;
 }
 
+export async function refreshConfiguredAgentAdapters(options: OpenBrainOptions = {}) {
+  const config = await loadConfig(options);
+  const refreshed: Array<{ agent: "codex" | "claude"; status: "refreshed" | "skipped" | "incomplete" }> = [];
+
+  if (!config.agents.codex.enabled) {
+    refreshed.push({ agent: "codex", status: "skipped" });
+  } else {
+    try {
+      const instructions = path.join(codexHome(options), "AGENTS.md");
+      const existing = await readOptionalText(instructions);
+      const managed = inspectManagedBlock(existing);
+      const hookFile = codexHooksPath(options);
+      const rawHooks = await readOptionalText(hookFile);
+      const hookInspection = inspectCodexHooks(rawHooks);
+      if (managed.malformed) {
+        refreshed.push({ agent: "codex", status: "incomplete" });
+      } else if (managed.valid || hookInspection.owned) {
+        await syncInstructionFile(
+          codexHome(options),
+          "AGENTS.md",
+          config.agents.codex.memoryMode === "hook" ? codexMinimalBlock() : codexBlock(),
+          options
+        );
+        refreshed.push({
+          agent: "codex",
+          status: hookInspection.problem ? "incomplete" : "refreshed"
+        });
+      }
+    } catch {
+      refreshed.push({ agent: "codex", status: "incomplete" });
+    }
+  }
+
+  if (!config.agents.claude.enabled) {
+    refreshed.push({ agent: "claude", status: "skipped" });
+  } else {
+    try {
+      const instructions = path.join(claudeHome(options), "CLAUDE.md");
+      const existing = await readOptionalText(instructions);
+      const managed = inspectManagedBlock(existing);
+      const rawSettings = await readOptionalText(claudeSettingsPath(options));
+      const hookInspection = inspectClaudeSettings(rawSettings);
+      if (managed.malformed) {
+        refreshed.push({ agent: "claude", status: "incomplete" });
+      } else if (managed.valid || hookInspection.owned) {
+        await syncInstructionFile(claudeHome(options), "CLAUDE.md", codexBlock(), options);
+        refreshed.push({
+          agent: "claude",
+          status: hookInspection.problem ? "incomplete" : "refreshed"
+        });
+      }
+    } catch {
+      refreshed.push({ agent: "claude", status: "incomplete" });
+    }
+  }
+
+  return refreshed;
+}
+
+function inspectManagedBlock(text: string | undefined) {
+  const beginCount = text ? text.split(OPENBRAIN_BEGIN).length - 1 : 0;
+  const endCount = text ? text.split(OPENBRAIN_END).length - 1 : 0;
+  const beginAt = text?.indexOf(OPENBRAIN_BEGIN) ?? -1;
+  const endAt = text?.indexOf(OPENBRAIN_END) ?? -1;
+  const valid = beginCount === 1 && endCount === 1 && endAt > beginAt;
+  return { valid, malformed: (beginCount > 0 || endCount > 0) && !valid };
+}
+
+function readOptionalText(file: string) {
+  return readFile(file, "utf8").catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  });
+}
+
+function inspectCodexHooks(raw: string | undefined) {
+  if (raw === undefined) {
+    return { owned: false, problem: null as string | null };
+  }
+  let parsed: unknown;
+  try {
+    parsed = raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    return { owned: false, problem: "hooks.json is not valid JSON" };
+  }
+  const problem = codexHooksShapeProblem(parsed);
+  return { owned: hasCodexOwnedHook(parsed), problem };
+}
+
+function hasCodexOwnedHook(value: unknown) {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const hookSettings = value.hooks;
+  if (!isRecord(hookSettings)) {
+    return false;
+  }
+  return ["UserPromptSubmit", "SessionStart"].some((event) => {
+    const groups = hookSettings[event];
+    return (
+      Array.isArray(groups) &&
+      groups.some(
+        (group) =>
+          isRecord(group) &&
+          Array.isArray(group.hooks) &&
+          group.hooks.some(
+            (hook) =>
+              isRecord(hook) &&
+              hook.type === "command" &&
+              (hook.command === CODEX_HOOK_COMMAND || hook.command === CODEX_DREAM_HOOK_COMMAND)
+          )
+      )
+    );
+  });
+}
+
+function inspectClaudeSettings(raw: string | undefined) {
+  if (raw === undefined) {
+    return { owned: false, problem: null as string | null };
+  }
+  let parsed: unknown;
+  try {
+    parsed = raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    return { owned: false, problem: "settings.json is not valid JSON" };
+  }
+  const problem = claudeSettingsShapeProblem(parsed);
+  const groups = isRecord(parsed) && isRecord(parsed.hooks) ? parsed.hooks.SessionStart : undefined;
+  const owned =
+    Array.isArray(groups) &&
+    groups.some(
+      (group) =>
+        isRecord(group) &&
+        Array.isArray(group.hooks) &&
+        group.hooks.some(
+          (hook) => isRecord(hook) && hook.type === "command" && hook.command === CLAUDE_HOOK_COMMAND
+        )
+    );
+  return { owned, problem };
+}
+
 // Merge a point-of-use retrieval hook into Codex's global hooks without
 // replacing the user's other hook events or handlers.
 export async function syncCodexHooks(options: OpenBrainOptions = {}, enabled = true) {
