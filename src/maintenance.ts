@@ -25,6 +25,7 @@ import {
   resolveEmbedder
 } from "./internal.js";
 import { parseMemoryFile } from "./markdown.js";
+import { refreshGeneratedLinks } from "./memories.js";
 import { dreamsDir, episodesDir } from "./paths.js";
 import type {
   DreamResult,
@@ -107,6 +108,7 @@ export async function rebuildIndex(options: OpenBrainOptions = {}): Promise<void
   } finally {
     db.close();
   }
+  await refreshGeneratedLinks(scopedOptions);
 }
 
 export async function pruneEpisodes(options: OpenBrainOptions = {}): Promise<string[]> {
@@ -116,6 +118,7 @@ export async function pruneEpisodes(options: OpenBrainOptions = {}): Promise<str
   const { config, options: scopedOptions } = await prepareOpenBrain(options);
   const now = options.now?.() ?? new Date();
   const pruned: string[] = [];
+  const prunedIds: string[] = [];
   const db = await openDatabase(scopedOptions);
   try {
     const rowsByPath = new Map(listMemoryRows(db).map((row) => [row.path, row]));
@@ -127,12 +130,14 @@ export async function pruneEpisodes(options: OpenBrainOptions = {}): Promise<str
       await rm(filePath, { force: true });
       if (row) {
         deleteIndexedMemory(db, row.id);
+        prunedIds.push(row.id);
       }
       pruned.push(filePath);
     }
   } finally {
     db.close();
   }
+  await refreshGeneratedLinks(scopedOptions, prunedIds);
   return pruned;
 }
 

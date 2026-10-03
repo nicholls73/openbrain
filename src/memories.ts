@@ -19,7 +19,14 @@ import {
   prepareOpenBrain,
   resolveEmbedder
 } from "./internal.js";
-import { memoryMetadataDefaults, renderMemoryMarkdown, slugify, titleFromText } from "./markdown.js";
+import {
+  memoryMetadataDefaults,
+  parseRelatedTo,
+  renderMemoryMarkdown,
+  replaceGeneratedLinks,
+  slugify,
+  titleFromText
+} from "./markdown.js";
 import { episodesDir, memoriesDir } from "./paths.js";
 import type {
   AddMemoryInput,
@@ -72,6 +79,7 @@ export async function addMemory(
   } finally {
     db.close();
   }
+  await refreshGeneratedLinks(scopedOptions, [id]);
   return duplicateOf ? { ...entry.record, duplicateOf } : entry.record;
 }
 
@@ -134,6 +142,7 @@ export async function updateMemory(
       scope: input.metadata?.scope ?? row.scope,
       confidence: input.metadata?.confidence ?? (row.confidence as MemoryRecord["metadata"]["confidence"]),
       expiresAt: input.metadata?.expiresAt ?? row.expires_at ?? undefined,
+      relatedTo: input.metadata?.relatedTo ?? parseRelatedTo(row.related_to ?? undefined),
       promotedFrom: row.promoted_from ?? undefined,
       sensitivity:
         input.metadata?.sensitivity ?? (row.sensitivity as MemoryRecord["metadata"]["sensitivity"]),
@@ -144,6 +153,7 @@ export async function updateMemory(
 
   await writeFile(record.path, renderMemoryMarkdown(record), "utf8");
   await indexMemoryRecord(record, scopedOptions);
+  await refreshGeneratedLinks(scopedOptions, [record.id]);
   return record;
 }
 
@@ -223,6 +233,55 @@ export async function listMemories(options: OpenBrainOptions = {}) {
   }
 }
 
+export async function refreshGeneratedLinks(
+  options: OpenBrainOptions = {},
+  changedIds?: string[]
+): Promise<void> {
+  if (!isBrainWriteLocked(options)) {
+    return withBrainWriteLock(options, (locked) => refreshGeneratedLinks(locked, changedIds));
+  }
+  if (changedIds && changedIds.length === 0) {
+    return;
+  }
+  const { options: scopedOptions } = await prepareOpenBrain(options);
+  const db = await openDatabase(scopedOptions, { readonly: true });
+  let records: ReturnType<typeof rowToMemoryRecord>[];
+  try {
+    records = listMemoryRows(db).map(rowToMemoryRecord);
+  } finally {
+    db.close();
+  }
+  // Files can be deleted in Obsidian before the next index rebuild.
+  records = (
+    await Promise.all(records.map(async (record) => ((await exists(record.path)) ? record : undefined)))
+  ).filter((record) => record !== undefined);
+  const changed = changedIds ? new Set(changedIds) : undefined;
+  const affected = changed
+    ? records.filter(
+        (record) =>
+          changed.has(record.id) ||
+          record.metadata.relatedTo?.some((id) => changed.has(id)) ||
+          (record.metadata.promotedFrom !== undefined && changed.has(record.metadata.promotedFrom))
+      )
+    : records;
+  const now = options.now?.() ?? new Date();
+  for (const record of affected) {
+    let markdown: string;
+    try {
+      markdown = await readFile(record.path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    const updated = replaceGeneratedLinks(markdown, record, records, now);
+    if (updated !== markdown) {
+      await writeFile(record.path, updated, "utf8");
+    }
+  }
+}
+
 export async function showMemory(id: string, options: OpenBrainOptions = {}) {
   const { options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
   const db = await openDatabase(scopedOptions, { readonly: true });
@@ -253,6 +312,7 @@ export async function deleteMemory(id: string, options: OpenBrainOptions = {}): 
   } finally {
     db.close();
   }
+  await refreshGeneratedLinks(scopedOptions, [id]);
 }
 
 function rowToMemoryRecord(row: {
@@ -267,6 +327,7 @@ function rowToMemoryRecord(row: {
   confidence: string;
   expires_at: string | null;
   promoted_from: string | null;
+  related_to: string | null;
   sensitivity: string;
   promote_as: string | null;
 }) {
@@ -282,6 +343,7 @@ function rowToMemoryRecord(row: {
       scope: row.scope,
       confidence: row.confidence as MemoryRecord["metadata"]["confidence"],
       expiresAt: row.expires_at ?? undefined,
+      relatedTo: parseRelatedTo(row.related_to ?? undefined),
       promotedFrom: row.promoted_from ?? undefined,
       sensitivity: row.sensitivity as MemoryRecord["metadata"]["sensitivity"],
       promoteAs: row.promote_as as MemoryRecord["metadata"]["promoteAs"]

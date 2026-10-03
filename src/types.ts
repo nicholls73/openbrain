@@ -17,6 +17,7 @@ export interface MemoryMetadata {
   scope: string;
   confidence: MemoryConfidence;
   expiresAt?: string;
+  relatedTo?: string[];
   promotedFrom?: string;
   sensitivity: MemorySensitivity;
   promoteAs?: DurableMemoryType;
@@ -164,6 +165,7 @@ export interface SearchResult {
   scope: string;
   confidence: MemoryConfidence;
   expiresAt?: string;
+  relatedTo?: string[];
   promotedFrom?: string;
   sensitivity: MemorySensitivity;
   promoteAs?: DurableMemoryType;

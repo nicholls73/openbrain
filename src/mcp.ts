@@ -81,11 +81,17 @@ export async function createMcpServer() {
           .describe("private memories are never embedded and need includePrivate to search"),
         promoteAs: durableMemoryType
           .optional()
-          .describe("For episodes: mark for later review as this durable type")
+          .describe("For episodes: mark for later review as this durable type"),
+        relatedTo: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Explicit related memory IDs; unresolved targets are kept but not linked yet")
       }
     },
-    ({ type, text, scope, confidence, sensitivity, promoteAs }) =>
-      toolResult(() => addMemory({ type, text, metadata: { scope, confidence, sensitivity, promoteAs } }))
+    ({ type, text, scope, confidence, sensitivity, promoteAs, relatedTo }) =>
+      toolResult(() =>
+        addMemory({ type, text, metadata: { scope, confidence, sensitivity, promoteAs, relatedTo } })
+      )
   );
 
   server.registerTool(
@@ -93,9 +99,23 @@ export async function createMcpServer() {
     {
       description:
         "Replace a memory's text, keeping its id. Prefer this over memory_add when an existing memory is outdated or already covers the same fact.",
-      inputSchema: { id: z.string(), text: z.string() }
+      inputSchema: {
+        id: z.string(),
+        text: z.string(),
+        relatedTo: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Replace explicit related memory IDs; omit to keep the current links")
+      }
     },
-    ({ id, text }) => toolResult(() => updateMemory({ id, text }))
+    ({ id, text, relatedTo }) =>
+      toolResult(() =>
+        updateMemory({
+          id,
+          text,
+          metadata: relatedTo === undefined ? undefined : { relatedTo }
+        })
+      )
   );
 
   server.registerTool(

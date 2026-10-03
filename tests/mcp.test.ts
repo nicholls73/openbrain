@@ -106,6 +106,45 @@ describe("OpenBrain MCP server", () => {
     expect(results.map((result) => result.id)).toContain(record.id);
   });
 
+  test("sets and updates explicit related memory IDs through MCP tools", async () => {
+    await tempHome();
+    const client = await connectedClient();
+    const targetResult = await client.callTool({
+      name: "memory_add",
+      arguments: { type: "workflow", text: "MCP relationship target." }
+    });
+    const target = JSON.parse(resultText(targetResult)) as { id: string };
+
+    const sourceResult = await client.callTool({
+      name: "memory_add",
+      arguments: {
+        type: "decision",
+        text: "MCP relationship source.",
+        relatedTo: [target.id]
+      }
+    });
+    const source = JSON.parse(resultText(sourceResult)) as {
+      id: string;
+      metadata: { relatedTo?: string[] };
+    };
+    expect(source.metadata.relatedTo).toEqual([target.id]);
+
+    const updated = await client.callTool({
+      name: "memory_update",
+      arguments: {
+        id: source.id,
+        text: "MCP relationship source revised.",
+        relatedTo: []
+      }
+    });
+    expect(JSON.parse(resultText(updated))).toMatchObject({
+      id: source.id,
+      body: "MCP relationship source revised."
+    });
+    const shown = await client.callTool({ name: "memory_show", arguments: { id: source.id } });
+    expect(resultText(shown)).not.toContain("relatedTo:");
+  });
+
   test("honors and validates a per-call memory_search limit", async () => {
     await tempHome();
     const client = await connectedClient();

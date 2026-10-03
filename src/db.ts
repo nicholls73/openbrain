@@ -21,6 +21,7 @@ export interface IndexedMemoryRow {
   confidence: string;
   expires_at: string | null;
   promoted_from: string | null;
+  related_to: string | null;
   sensitivity: string;
   promote_as: string | null;
   // Float32 blob for rows written by current versions; legacy rows hold JSON
@@ -121,6 +122,7 @@ export async function openDatabase(options: OpenBrainOptions = {}, mode: { reado
       confidence TEXT NOT NULL DEFAULT 'medium',
       expires_at TEXT,
       promoted_from TEXT,
+      related_to TEXT NOT NULL DEFAULT '[]',
       sensitivity TEXT NOT NULL DEFAULT 'standard',
       promote_as TEXT,
       embedding TEXT,
@@ -220,9 +222,9 @@ export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding
     `
     INSERT INTO memories (
       id, type, title, path, created_at, body, source, scope, confidence,
-      expires_at, promoted_from, sensitivity, promote_as, embedding, updated_at
+      expires_at, promoted_from, related_to, sensitivity, promote_as, embedding, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       type = excluded.type,
       title = excluded.title,
@@ -234,6 +236,7 @@ export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding
       confidence = excluded.confidence,
       expires_at = excluded.expires_at,
       promoted_from = excluded.promoted_from,
+      related_to = excluded.related_to,
       sensitivity = excluded.sensitivity,
       promote_as = excluded.promote_as,
       embedding = excluded.embedding,
@@ -251,6 +254,7 @@ export function upsertMemory(db: SqliteDatabase, record: MemoryRecord, embedding
     record.metadata.confidence,
     record.metadata.expiresAt ?? null,
     record.metadata.promotedFrom ?? null,
+    JSON.stringify(record.metadata.relatedTo ?? []),
     record.metadata.sensitivity,
     record.metadata.promoteAs ?? null,
     encodeEmbedding(embedding),
@@ -275,6 +279,7 @@ function ensureMemoryColumns(db: SqliteDatabase) {
     ["confidence", "TEXT NOT NULL DEFAULT 'medium'"],
     ["expires_at", "TEXT"],
     ["promoted_from", "TEXT"],
+    ["related_to", "TEXT NOT NULL DEFAULT '[]'"],
     ["sensitivity", "TEXT NOT NULL DEFAULT 'standard'"],
     ["promote_as", "TEXT"]
   ];

@@ -94,6 +94,10 @@ Markdown edited in Obsidian becomes searchable after:
 openbrain index rebuild
 ```
 
+Relate notes explicitly with repeatable `--related-to <id>` flags on `memory add` or `memory update`. An update replaces the current relation list; use `--clear-related-to` to remove it. Reviewed promotions also link back through their `promotedFrom` metadata. OpenBrain renders these links in a delimited generated section using relative Markdown paths. Rebuild regenerates the section from metadata while preserving user-authored body text and unrelated frontmatter; the parser excludes the generated section from indexed bodies and embeddings.
+
+Only existing, unexpired, non-private targets receive generated links. OpenBrain refreshes incoming links after add, update, delete, and episode pruning. If expiry or privacy changes are made directly in Obsidian, run `openbrain index rebuild` to refresh links. Unresolved IDs stay in metadata and are linked if the target appears later.
+
 Local-vault mode does not configure synchronization. In the default nested layout, its SQLite index stays with the brain, so do not synchronize that vault between computers. Root layout and Headless Sync keep the index under `~/.openbrain/indexes/<brain>`.
 
 If a move is interrupted before the configuration changes, the verified source remains authoritative. Remove the incomplete destination shown by the error, then run the command again. If the configuration already points to the destination, verify it with `openbrain doctor` before removing the old directory.

@@ -552,7 +552,8 @@ async function memoryCommand(command: string | undefined, args: string[]) {
         expiresAt: readOption(args, "--expires-at"),
         sensitivity: parseSensitivity(readOption(args, "--sensitivity")),
         promotedFrom: readOption(args, "--promoted-from"),
-        promoteAs: parseDurableType(readOption(args, "--promote-as"))
+        promoteAs: parseDurableType(readOption(args, "--promote-as")),
+        relatedTo: readOptions(args, "--related-to")
       }
     });
     console.log(`${result.id}\t${result.path}`);
@@ -577,6 +578,11 @@ async function memoryCommand(command: string | undefined, args: string[]) {
     if (!text) {
       throw new Error("memory update requires --text");
     }
+    const relatedTo = readOptions(args, "--related-to");
+    const clearRelatedTo = args.includes("--clear-related-to");
+    if (clearRelatedTo && relatedTo.length) {
+      throw new Error("memory update cannot combine --related-to with --clear-related-to");
+    }
     const result = await updateMemory({
       id,
       text,
@@ -585,7 +591,8 @@ async function memoryCommand(command: string | undefined, args: string[]) {
         scope: readOption(args, "--scope"),
         confidence: parseConfidence(readOption(args, "--confidence")),
         expiresAt: readOption(args, "--expires-at"),
-        sensitivity: parseSensitivity(readOption(args, "--sensitivity"))
+        sensitivity: parseSensitivity(readOption(args, "--sensitivity")),
+        relatedTo: clearRelatedTo ? [] : relatedTo.length ? relatedTo : undefined
       }
     });
     console.log(`${result.id}\t${result.path}`);
@@ -825,8 +832,8 @@ function usage() {
   openbrain dream run [--quiet]
   openbrain hook session-start
   openbrain hook user-prompt-submit
-  openbrain memory add --type <type> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--promoted-from <id>] [--promote-as <type>]
-  openbrain memory update <id> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private]
+  openbrain memory add --type <type> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--promoted-from <id>] [--promote-as <type>] [--related-to <id>]...
+  openbrain memory update <id> --text <text> [--source <value>] [--scope <value>] [--confidence low|medium|high] [--expires-at <iso>] [--sensitivity standard|private] [--related-to <id>]... [--clear-related-to]
   openbrain memory merge <source-id> --into <target-id> --text <text>
   openbrain memory promote <episode-id> --type <type> --text <text>
   openbrain memory search <query> [--type <type>] [--scope <value>] [--confidence low|medium|high] [--durable-only] [--include-private]
