@@ -8,6 +8,15 @@ OPENBRAIN_INSTALL_DIR="${OPENBRAIN_INSTALL_DIR:-$HOME/.local/share/openbrain/app
 OPENBRAIN_BIN_DIR="${OPENBRAIN_BIN_DIR:-$HOME/.local/bin}"
 OPENBRAIN_SOURCE_DIR="${OPENBRAIN_SOURCE_DIR:-}"
 OPENBRAIN_SKIP_BIN="${OPENBRAIN_SKIP_BIN:-0}"
+OPENBRAIN_INSTALL_DIR="${OPENBRAIN_INSTALL_DIR%/}"
+INSTALL_PARENT="$(dirname "$OPENBRAIN_INSTALL_DIR")"
+INSTALL_LOCK_DIR="${OPENBRAIN_INSTALL_DIR}.install.lock"
+STAGING_DIR=""
+BACKUP_DIR=""
+LAUNCHER_TMP=""
+DOWNLOAD_TMP_DIR=""
+LOCK_OWNED=0
+PUBLISHING=0
 
 usage() {
   cat <<'EOF'
@@ -75,19 +84,80 @@ ensure_pnpm() {
   command -v pnpm >/dev/null 2>&1 || fail "pnpm is required. Install it or enable it with corepack."
 }
 
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+
+  if [[ "$status" -ne 0 && "$PUBLISHING" == "1" && -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]]; then
+    if ! rm -rf "$OPENBRAIN_INSTALL_DIR"; then
+      log "could not remove incomplete installation; previous installation remains at $BACKUP_DIR"
+    elif mv "$BACKUP_DIR" "$OPENBRAIN_INSTALL_DIR"; then
+      log "restored previous installation"
+      BACKUP_DIR=""
+    else
+      log "could not restore previous installation from $BACKUP_DIR"
+    fi
+  fi
+
+  [[ -z "$STAGING_DIR" ]] || rm -rf "$STAGING_DIR"
+  [[ -z "$LAUNCHER_TMP" ]] || rm -f "$LAUNCHER_TMP"
+  [[ -z "$DOWNLOAD_TMP_DIR" ]] || rm -rf "$DOWNLOAD_TMP_DIR"
+
+  if [[ "$LOCK_OWNED" == "1" && "$(cat "$INSTALL_LOCK_DIR/pid" 2>/dev/null || true)" == "$$" ]]; then
+    rm -rf "$INSTALL_LOCK_DIR"
+  fi
+
+  return "$status"
+}
+
+acquire_install_lock() {
+  mkdir -p "$INSTALL_PARENT"
+
+  if ! mkdir "$INSTALL_LOCK_DIR" 2>/dev/null; then
+    local owner
+    owner="$(cat "$INSTALL_LOCK_DIR/pid" 2>/dev/null || true)"
+    if [[ "$owner" =~ ^[0-9]+$ ]]; then
+      fail "another OpenBrain installation may be active (pid $owner); if it stopped, verify that before removing $INSTALL_LOCK_DIR"
+    fi
+    fail "another OpenBrain installation may be initializing; verify that it stopped before removing $INSTALL_LOCK_DIR"
+  fi
+
+  LOCK_OWNED=1
+  printf '%s\n' "$$" > "$INSTALL_LOCK_DIR/pid"
+}
+
+recover_interrupted_install() {
+  for stale_stage in "${OPENBRAIN_INSTALL_DIR}".staging.*; do
+    [[ -e "$stale_stage" ]] || continue
+    rm -rf "$stale_stage"
+  done
+
+  if [[ ! -e "$OPENBRAIN_INSTALL_DIR" ]]; then
+    for local_backup in "${OPENBRAIN_INSTALL_DIR}".backup.*; do
+      if [[ -d "$local_backup" ]] && mv "$local_backup" "$OPENBRAIN_INSTALL_DIR"; then
+        log "restored previous installation after interrupted update"
+        return
+      fi
+    done
+  else
+    for local_backup in "${OPENBRAIN_INSTALL_DIR}".backup.*; do
+      [[ -e "$local_backup" ]] || continue
+      rm -rf "$local_backup"
+    done
+  fi
+}
+
 copy_local_source() {
   local source_dir="$1"
-  local install_dir="$2"
+  local staging_dir="$2"
 
   [[ -f "$source_dir/package.json" ]] || fail "OPENBRAIN_SOURCE_DIR must point at the OpenBrain repo root."
-  rm -rf "$install_dir"
-  mkdir -p "$install_dir"
   tar \
     --exclude '.git' \
     --exclude 'node_modules' \
     --exclude 'dist' \
     -C "$source_dir" \
-    -cf - . | tar -C "$install_dir" -xf -
+    -cf - . | tar -C "$staging_dir" -xf -
 }
 
 repo_slug() {
@@ -110,16 +180,14 @@ sha256_of() {
 
 extract_archive() {
   local tarball="$1"
-  local install_dir="$2"
+  local staging_dir="$2"
   local tmp_dir="$3"
 
   tar -xzf "$tarball" -C "$tmp_dir"
   local extracted
   extracted="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d -name 'openbrain-*' | head -n 1)"
   [[ -n "$extracted" ]] || fail "could not find extracted OpenBrain source."
-  rm -rf "$install_dir"
-  mkdir -p "$install_dir"
-  tar -C "$extracted" -cf - . | tar -C "$install_dir" -xf -
+  tar -C "$extracted" -cf - . | tar -C "$staging_dir" -xf -
 }
 
 # Install a published release: download the release tarball and its checksum
@@ -127,94 +195,148 @@ extract_archive() {
 # when the ref has no release assets (e.g. a branch).
 download_release() {
   local tag="$1"
-  local install_dir="$2"
+  local staging_dir="$2"
   local base="${OPENBRAIN_REPO_URL}/releases/download/${tag}"
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
+  DOWNLOAD_TMP_DIR="$(mktemp -d)"
 
   log "downloading release ${tag}"
-  if ! curl -fsSL "${base}/openbrain-${tag}.tar.gz" -o "$tmp_dir/openbrain.tar.gz" ||
-    ! curl -fsSL "${base}/openbrain-${tag}.tar.gz.sha256" -o "$tmp_dir/openbrain.tar.gz.sha256"; then
-    rm -rf "$tmp_dir"
+  if ! curl -fsSL "${base}/openbrain-${tag}.tar.gz" -o "$DOWNLOAD_TMP_DIR/openbrain.tar.gz" ||
+    ! curl -fsSL "${base}/openbrain-${tag}.tar.gz.sha256" -o "$DOWNLOAD_TMP_DIR/openbrain.tar.gz.sha256"; then
+    rm -rf "$DOWNLOAD_TMP_DIR"
+    DOWNLOAD_TMP_DIR=""
     return 1
   fi
 
   local expected actual
-  expected="$(awk '{print $1}' "$tmp_dir/openbrain.tar.gz.sha256")"
-  actual="$(sha256_of "$tmp_dir/openbrain.tar.gz")"
+  expected="$(awk '{print $1}' "$DOWNLOAD_TMP_DIR/openbrain.tar.gz.sha256")"
+  actual="$(sha256_of "$DOWNLOAD_TMP_DIR/openbrain.tar.gz")"
   if [[ -z "$expected" || "$expected" != "$actual" ]]; then
-    rm -rf "$tmp_dir"
+    rm -rf "$DOWNLOAD_TMP_DIR"
+    DOWNLOAD_TMP_DIR=""
     fail "checksum mismatch for release ${tag}: expected '${expected}', got '${actual}'"
   fi
   log "checksum verified: ${actual}"
 
-  extract_archive "$tmp_dir/openbrain.tar.gz" "$install_dir" "$tmp_dir"
-  rm -rf "$tmp_dir"
+  extract_archive "$DOWNLOAD_TMP_DIR/openbrain.tar.gz" "$staging_dir" "$DOWNLOAD_TMP_DIR"
+  rm -rf "$DOWNLOAD_TMP_DIR"
+  DOWNLOAD_TMP_DIR=""
 }
 
 # Unverified fallback for refs without release assets. The generic archive
 # endpoint accepts branches, tags, and commit SHAs.
 download_ref() {
   local ref="$1"
-  local install_dir="$2"
+  local staging_dir="$2"
   local archive_url="${OPENBRAIN_REPO_URL}/archive/${ref}.tar.gz"
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
+  DOWNLOAD_TMP_DIR="$(mktemp -d)"
 
   log "downloading ${archive_url}"
-  curl -fsSL "$archive_url" -o "$tmp_dir/openbrain.tar.gz"
-  extract_archive "$tmp_dir/openbrain.tar.gz" "$install_dir" "$tmp_dir"
-  rm -rf "$tmp_dir"
+  curl -fsSL "$archive_url" -o "$DOWNLOAD_TMP_DIR/openbrain.tar.gz"
+  extract_archive "$DOWNLOAD_TMP_DIR/openbrain.tar.gz" "$staging_dir" "$DOWNLOAD_TMP_DIR"
+  rm -rf "$DOWNLOAD_TMP_DIR"
+  DOWNLOAD_TMP_DIR=""
 }
 
 download_source() {
-  local install_dir="$1"
+  local staging_dir="$1"
 
   if [[ -n "$OPENBRAIN_REF" ]]; then
-    if download_release "$OPENBRAIN_REF" "$install_dir"; then
+    if download_release "$OPENBRAIN_REF" "$staging_dir"; then
       return
     fi
     log "warning: ${OPENBRAIN_REF} has no release assets to verify; installing it unverified"
-    download_ref "$OPENBRAIN_REF" "$install_dir"
+    download_ref "$OPENBRAIN_REF" "$staging_dir"
     return
   fi
 
   local tag
   tag="$(latest_release_tag)"
   if [[ -n "$tag" ]]; then
-    download_release "$tag" "$install_dir" || fail "failed to download release ${tag}"
+    download_release "$tag" "$staging_dir" || fail "failed to download release ${tag}"
     return
   fi
 
   log "warning: no published release found; installing unverified main branch"
-  download_ref "main" "$install_dir"
+  download_ref "main" "$staging_dir"
 }
 
-install_openbrain() {
-  ensure_node
-  ensure_pnpm
+prepare_launcher() {
+  [[ "$OPENBRAIN_SKIP_BIN" == "1" ]] && return
 
-  if [[ -n "$OPENBRAIN_SOURCE_DIR" ]]; then
-    log "installing from local source: $OPENBRAIN_SOURCE_DIR"
-    copy_local_source "$OPENBRAIN_SOURCE_DIR" "$OPENBRAIN_INSTALL_DIR"
-  else
-    download_source "$OPENBRAIN_INSTALL_DIR"
-  fi
-
-  log "installing dependencies"
-  (cd "$OPENBRAIN_INSTALL_DIR" && pnpm install --frozen-lockfile)
-
-  log "building CLI"
-  (cd "$OPENBRAIN_INSTALL_DIR" && pnpm build)
-
-  if [[ "$OPENBRAIN_SKIP_BIN" != "1" ]]; then
-    mkdir -p "$OPENBRAIN_BIN_DIR"
-    cat > "$OPENBRAIN_BIN_DIR/openbrain" <<EOF
+  mkdir -p "$OPENBRAIN_BIN_DIR"
+  [[ ! -d "$OPENBRAIN_BIN_DIR/openbrain" ]] || fail "executable path is a directory: $OPENBRAIN_BIN_DIR/openbrain"
+  LAUNCHER_TMP="$(mktemp "$OPENBRAIN_BIN_DIR/.openbrain.XXXXXX")"
+  cat > "$LAUNCHER_TMP" <<EOF
 #!/usr/bin/env bash
 exec node "$OPENBRAIN_INSTALL_DIR/dist/cli.js" "\$@"
 EOF
-    chmod +x "$OPENBRAIN_BIN_DIR/openbrain"
+  chmod +x "$LAUNCHER_TMP"
+}
 
+validate_staged_cli() {
+  local expected_version actual_version
+  expected_version="$(cd "$STAGING_DIR" && node -p 'require("./package.json").version')"
+  actual_version="$(cd "$STAGING_DIR" && node ./dist/cli.js --version)"
+  [[ "$actual_version" == "$expected_version" ]] ||
+    fail "staged CLI version mismatch: expected '${expected_version}', got '${actual_version}'"
+}
+
+publish_installation() {
+  if [[ -e "$OPENBRAIN_INSTALL_DIR" ]]; then
+    BACKUP_DIR="${OPENBRAIN_INSTALL_DIR}.backup.$$.$RANDOM"
+    PUBLISHING=1
+    mv "$OPENBRAIN_INSTALL_DIR" "$BACKUP_DIR"
+  fi
+
+  PUBLISHING=1
+  mv "$STAGING_DIR" "$OPENBRAIN_INSTALL_DIR"
+  STAGING_DIR=""
+
+  if [[ "$OPENBRAIN_SKIP_BIN" != "1" ]]; then
+    mv -f "$LAUNCHER_TMP" "$OPENBRAIN_BIN_DIR/openbrain"
+    LAUNCHER_TMP=""
+  fi
+
+  PUBLISHING=0
+  local previous_install="$BACKUP_DIR"
+  BACKUP_DIR=""
+  if [[ -n "$previous_install" ]]; then
+    rm -rf "$previous_install" || log "could not remove previous installation at $previous_install"
+  fi
+}
+
+install_openbrain() {
+  case "$OPENBRAIN_INSTALL_DIR" in
+    ""|"."|".."|*/.|*/..)
+      fail "OPENBRAIN_INSTALL_DIR must name an application directory, not a filesystem root or dot directory."
+      ;;
+  esac
+
+  ensure_node
+  ensure_pnpm
+  acquire_install_lock
+  recover_interrupted_install
+  STAGING_DIR="$(mktemp -d "${OPENBRAIN_INSTALL_DIR}.staging.XXXXXX")"
+
+  if [[ -n "$OPENBRAIN_SOURCE_DIR" ]]; then
+    log "installing from local source: $OPENBRAIN_SOURCE_DIR"
+    copy_local_source "$OPENBRAIN_SOURCE_DIR" "$STAGING_DIR"
+  else
+    download_source "$STAGING_DIR"
+  fi
+
+  log "installing dependencies"
+  (cd "$STAGING_DIR" && pnpm install --frozen-lockfile)
+
+  log "building CLI"
+  (cd "$STAGING_DIR" && pnpm build)
+
+  log "validating staged CLI"
+  validate_staged_cli
+  prepare_launcher
+  publish_installation
+
+  if [[ "$OPENBRAIN_SKIP_BIN" != "1" ]]; then
     log "installed executable: $OPENBRAIN_BIN_DIR/openbrain"
     if [[ ":$PATH:" != *":$OPENBRAIN_BIN_DIR:"* ]]; then
       log "add this to your shell profile if openbrain is not found:"
@@ -223,5 +345,9 @@ EOF
   fi
   log "next: openbrain setup"
 }
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 install_openbrain
