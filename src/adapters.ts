@@ -774,6 +774,15 @@ openbrain memory merge <source-id> --into <target-id> --text "..."
 If \`memory add\` reports a possible duplicate, follow its suggestion: fold the
 fact into the existing memory with \`memory update\` and delete the new copy.
 
+When adding a memory, link it to an existing memory only when the connection is
+direct and clear and its ID is already available in the current task context.
+Use relatedTo with memory_add or repeat --related-to <id> flags with openbrain
+memory add. Do not run an extra memory search solely to create graph links or
+infer links from embedding similarity alone. When updating a memory, omit
+relatedTo unless changing its links. Supplying relatedTo replaces the full list,
+so include every link to keep; if the current list is unknown, omit the field to
+preserve it.
+
 Record durable memories only when the guidance is likely to stay useful across
 future tasks. Prefer principles, preferences, repeated workflows, stable
 workspace conventions, and durable decisions. Do not store branch names, PR
