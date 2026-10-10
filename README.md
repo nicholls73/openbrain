@@ -147,6 +147,8 @@ After setup, Codex's default hooks run daily maintenance at session start and re
 
 Search and automatic recall deliver complete memory bodies within an 8,192-byte UTF-8 context budget. This is an exact byte cap, not a token estimate. Each delivery surface counts its rendered text, metadata, separators and omission notices; transport envelopes and CLI diagnostics/update notices are outside the cap. Bodies that do not fit are replaced with an explicit incomplete marker and instructions to fetch the full memory by ID. If metadata alone does not fit, a notice reports omitted results. CLI and MCP search use the same policy as prompt injection; the MCP result array remains in its first text block, with any omitted-result notice in a second block. Explicit full-memory fetches are not capped.
 
+Search can include up to half its result limit as one-step related context, after direct matches. A linked memory must also match the query through full-text search or pass the configured vector similarity threshold; links alone do not make it relevant. Related results identify their source with `relatedFrom`, use the same result and byte budgets, and keep the prompt hook's high-confidence, durable, non-private eligibility rules.
+
 OpenBrain works best when durable memories describe reusable guidance rather than fast-changing work logs.
 
 Good durable memories include:
