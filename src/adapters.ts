@@ -2,11 +2,12 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrainUnavailableError } from "./brains.js";
 import { loadConfig } from "./config.js";
+import { omittedResultsNotice, packSearchResults } from "./evidence.js";
 import { getBrainStatus, initOpenBrain } from "./internal.js";
 import { dreamMaybe, listPendingReviews } from "./maintenance.js";
 import { claudeHome, claudeSettingsPath, codexHome, codexHooksPath } from "./paths.js";
 import { searchMemoriesWithOutcome } from "./search.js";
-import type { BrainStatus, OpenBrainOptions, PendingReview } from "./types.js";
+import type { BrainStatus, OpenBrainOptions, PendingReview, SearchResult } from "./types.js";
 
 export const OPENBRAIN_BEGIN = "<!-- BEGIN OPENBRAIN -->";
 export const OPENBRAIN_END = "<!-- END OPENBRAIN -->";
@@ -459,10 +460,13 @@ export async function runUserPromptSubmitHook(
     if (!relevant.length) {
       return undefined;
     }
-    const additionalContext = [
-      "OpenBrain found relevant durable memories. Use only those applicable to this request:",
-      ...relevant.map((result) => `- [${result.type}] ${result.excerpt}`)
-    ].join("\n");
+    const render = (results: SearchResult[], omitted: number) =>
+      [
+        "OpenBrain found relevant durable memories. Use only those applicable to this request:",
+        ...results.map((result) => `- [${result.type}] [${result.id}] ${result.excerpt}`)
+      ].join("\n") + omittedResultsNotice(omitted);
+    const packed = packSearchResults(relevant, render);
+    const additionalContext = render(packed.results, packed.omitted);
     return {
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext }
     };

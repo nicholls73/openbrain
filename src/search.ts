@@ -1,7 +1,8 @@
 import type { IndexedMemoryRow } from "./db.js";
 import { allRowsWithEmbeddings, decodeEmbedding, ftsSearch, openDatabase } from "./db.js";
 import { embedWithTimeout } from "./embeddings.js";
-import { cosine, excerpt, prepareOpenBrain, resolveEmbedder } from "./internal.js";
+import { packSearchResults } from "./evidence.js";
+import { cosine, prepareOpenBrain, resolveEmbedder } from "./internal.js";
 import { parseRelatedTo } from "./markdown.js";
 import type { SearchMemoriesOptions, SearchResult, StoredMemoryType } from "./types.js";
 
@@ -12,9 +13,10 @@ interface SearchMemoriesOutcome {
 }
 
 export async function searchMemories(query: string, options: SearchMemoriesOptions = {}) {
-  return (await searchMemoriesWithOutcome(query, options)).results;
+  return packSearchResults((await searchMemoriesWithOutcome(query, options)).results).results;
 }
 
+// Delivery surfaces pack these full bodies after applying their own admission rules.
 export async function searchMemoriesWithOutcome(
   query: string,
   options: SearchMemoriesOptions = {}
@@ -121,7 +123,7 @@ export async function searchMemoriesWithOutcome(
           sensitivity: row.sensitivity as SearchResult["sensitivity"],
           promoteAs: (row.promote_as ?? undefined) as SearchResult["promoteAs"],
           score,
-          excerpt: excerpt(row.body, query),
+          excerpt: row.body,
           match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")
         })
       );

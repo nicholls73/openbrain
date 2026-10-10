@@ -4,6 +4,7 @@ import { refreshConfiguredAgentAdapters } from "./adapters.js";
 import { renderCliError } from "./cli-error.js";
 import { loadConfig, updateConfig } from "./config.js";
 import { renderDoctorReport, runDoctor } from "./doctor.js";
+import { omittedResultsNotice, packSearchResults } from "./evidence.js";
 import { runMcpServer } from "./mcp.js";
 import { connectObsidianSync } from "./obsidian.js";
 import { obsidianSyncServiceManager } from "./obsidian-service.js";
@@ -27,7 +28,6 @@ import {
   rebuildIndex,
   runSessionStartHook,
   runUserPromptSubmitHook,
-  searchMemories,
   setBrainStorage,
   setupOpenBrain,
   showMemory,
@@ -36,6 +36,7 @@ import {
   updateMemory
 } from "./openbrain.js";
 import { claudeSettingsPath, codexHooksPath } from "./paths.js";
+import { searchMemoriesWithOutcome } from "./search.js";
 import { parseConfidence, parseSearchArgs } from "./search-args.js";
 import {
   type BrainStorage,
@@ -658,7 +659,9 @@ async function memoryCommand(command: string | undefined, args: string[]) {
     if (!query) {
       throw new Error("memory search requires a query");
     }
-    printSearchResults(await searchMemories(query, options));
+    const outcome = await searchMemoriesWithOutcome(query, options);
+    const packed = packSearchResults(outcome.results, renderSearchResults);
+    process.stdout.write(renderSearchResults(packed.results, packed.omitted));
     await maybePrintUpdateNotice();
     return;
   }
@@ -753,19 +756,19 @@ function parseSensitivity(value: string | undefined): MemorySensitivity | undefi
   throw new Error("--sensitivity must be standard|private");
 }
 
-function printSearchResults(results: SearchResult[]) {
+function renderSearchResults(results: SearchResult[], omitted: number) {
   if (!results.length) {
-    console.log("No memories found.");
-    return;
+    return omitted ? omittedResultsNotice(omitted) : "No memories found.\n";
   }
 
+  const lines: string[] = [];
   for (const result of results) {
-    console.log(`[${result.id}] ${result.title}`);
-    console.log(
+    lines.push(`[${result.id}] ${result.title}`);
+    lines.push(
       `type=${result.type} scope=${result.scope} confidence=${result.confidence} sensitivity=${result.sensitivity} match=${result.match} score=${result.score.toFixed(3)}`
     );
     if (result.expiresAt || result.promotedFrom || result.promoteAs) {
-      console.log(
+      lines.push(
         [
           result.expiresAt ? `expiresAt=${result.expiresAt}` : undefined,
           result.promotedFrom ? `promotedFrom=${result.promotedFrom}` : undefined,
@@ -775,10 +778,9 @@ function printSearchResults(results: SearchResult[]) {
           .join(" ")
       );
     }
-    console.log(`path=${result.path}`);
-    console.log(result.excerpt);
-    console.log("");
+    lines.push(`path=${result.path}`, result.excerpt, "");
   }
+  return lines.join("\n") + "\n" + omittedResultsNotice(omitted);
 }
 
 function printDreamResult(result: Awaited<ReturnType<typeof dreamMaybe>>) {

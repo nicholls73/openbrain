@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { renderCliError } from "./cli-error.js";
+import { omittedResultsNotice, packSearchResults } from "./evidence.js";
 import {
   addMemory,
   deleteMemory,
@@ -11,10 +12,10 @@ import {
   markReviewDone,
   mergeMemory,
   promoteMemory,
-  searchMemories,
   showMemory,
   updateMemory
 } from "./openbrain.js";
+import { searchMemoriesWithOutcome } from "./search.js";
 import { DURABLE_MEMORY_TYPES, MEMORY_TYPES, STORED_MEMORY_TYPES } from "./types.js";
 import { readCurrentVersion } from "./update.js";
 
@@ -61,8 +62,19 @@ export async function createMcpServer() {
           .describe("Maximum results; defaults to configured limit")
       }
     },
-    ({ query, type, durableOnly, includePrivate, limit }) =>
-      toolResult(() => searchMemories(query, { type, durableOnly, includePrivate, limit }))
+    async ({ query, type, durableOnly, includePrivate, limit }) => {
+      let omitted = 0;
+      const result = await toolResult(async () => {
+        const outcome = await searchMemoriesWithOutcome(query, { type, durableOnly, includePrivate, limit });
+        const packed = packSearchResults(outcome.results);
+        omitted = packed.omitted;
+        return packed.results;
+      });
+      if (omitted) {
+        result.content.push({ type: "text", text: omittedResultsNotice(omitted) });
+      }
+      return result;
+    }
   );
 
   server.registerTool(

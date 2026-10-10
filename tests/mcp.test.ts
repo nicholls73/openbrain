@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, test } from "vitest";
 import { createMcpServer } from "../src/mcp.js";
+import { addMemory } from "../src/memories.js";
 
 // The MCP server resolves the brain from process.cwd() and env, exactly like
 // the CLI, so these tests point OPENBRAIN_HOME at a temp store instead of
@@ -106,6 +107,24 @@ describe("OpenBrain MCP server", () => {
     expect(results.map((result) => result.id)).toContain(record.id);
   });
 
+  test("search preserves the complete memory including its final qualification", async () => {
+    await tempHome();
+    const client = await connectedClient();
+    const text =
+      "Release checklist. " +
+      "Check the deployment evidence carefully. ".repeat(8) +
+      "Never deploy without the user's approval. 🧠";
+    const added = await client.callTool({ name: "memory_add", arguments: { type: "workflow", text } });
+    const { id } = JSON.parse(resultText(added)) as { id: string };
+
+    const searched = await client.callTool({
+      name: "memory_search",
+      arguments: { query: "release checklist" }
+    });
+    const results = JSON.parse(resultText(searched)) as Array<{ id: string; excerpt: string }>;
+    expect(results.find((result) => result.id === id)?.excerpt).toBe(text);
+  });
+
   test("sets and updates explicit related memory IDs through MCP tools", async () => {
     await tempHome();
     const client = await connectedClient();
@@ -143,6 +162,39 @@ describe("OpenBrain MCP server", () => {
     });
     const shown = await client.callTool({ name: "memory_show", arguments: { id: source.id } });
     expect(resultText(shown)).not.toContain("relatedTo:");
+  });
+
+  test("bounds all search text blocks and preserves explicit full fetch and empty results", async () => {
+    const home = await tempHome();
+    const client = await connectedClient();
+    const body = "contextbudget oversized. " + '🧠 "quoted"\n'.repeat(1500);
+    const large = await addMemory({ type: "workflow", text: body }, { home });
+    const small = await addMemory(
+      { type: "decision", text: "contextbudget small. Keep the exception." },
+      { home }
+    );
+    await addMemory(
+      { type: "preference", text: "contextbudget metadata.", metadata: { source: "x".repeat(9000) } },
+      { home }
+    );
+
+    const searched = await client.callTool({ name: "memory_search", arguments: { query: "contextbudget" } });
+    expect(searched.isError).toBeFalsy();
+    const content = searched.content as Array<{ type: string; text: string }>;
+    const results = JSON.parse(content[0]!.text) as Array<{ id: string; excerpt: string }>;
+    expect(results.find(({ id }) => id === large.id)?.excerpt).toContain("Incomplete");
+    expect(results.find(({ id }) => id === small.id)?.excerpt).toBe(
+      "contextbudget small. Keep the exception."
+    );
+    expect(content[1]?.text).toMatch(/1 search result.*omitted/);
+    expect(content.reduce((bytes, block) => bytes + Buffer.byteLength(block.text), 0)).toBeLessThanOrEqual(
+      8192
+    );
+
+    const shown = await client.callTool({ name: "memory_show", arguments: { id: large.id } });
+    expect(resultText(shown)).toContain(body);
+    const empty = await client.callTool({ name: "memory_search", arguments: { query: "nomatch987654" } });
+    expect(JSON.parse(resultText(empty))).toEqual([]);
   });
 
   test("honors and validates a per-call memory_search limit", async () => {

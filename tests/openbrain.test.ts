@@ -24,6 +24,7 @@ import {
   openSqliteDatabase,
   sqliteNativeModuleRecoveryMessage
 } from "../src/db.js";
+import { excerpt } from "../src/internal.js";
 import {
   addBrainPath,
   addMemory,
@@ -776,17 +777,12 @@ describe("OpenBrain local storage", () => {
     expect(results[0]?.title).toBe("Deploy with the release checklist");
   });
 
-  test("excerpt anchors on the numerically earliest query match", async () => {
-    const home = await tempHome();
+  test("maintenance excerpts anchor on the numerically earliest query match", () => {
     // "alpha" matches at index 9 and "zulu" past index 100. A lexicographic
     // sort of the match indexes puts "101" before "9" and anchored the
     // excerpt on the later match, cutting off the start of the memory.
     const body = `12345678 alpha ${"p".repeat(85)} zulu end`;
-    await addMemory({ type: "workflow", text: body }, options(home));
-
-    const results = await searchMemories("alpha zulu", options(home));
-    expect(results).toHaveLength(1);
-    expect(results[0]?.excerpt.startsWith("12345678 alpha")).toBe(true);
+    expect(excerpt(body, "alpha zulu").startsWith("12345678 alpha")).toBe(true);
   });
 
   test("reports when query embedding fails so FTS-only degradation is visible", async () => {
@@ -1940,6 +1936,31 @@ describe("Codex adapter sync", () => {
     expect(context).not.toContain("Private release checklist detail");
     expect(context).not.toContain("Episode release checklist evidence");
     expect(context).not.toContain(home);
+  });
+
+  test("injects the complete memory including a qualification beyond the old excerpt limit", async () => {
+    const home = await tempHome();
+    const embedder: EmbeddingProvider = {
+      async embed() {
+        return [1, 0];
+      }
+    };
+    const text =
+      "Release checklist. " +
+      "Check the deployment evidence carefully. ".repeat(8) +
+      "Never deploy without the user's approval. 🧠";
+    const memory = await addMemory(
+      { type: "workflow", text, metadata: { confidence: "high" } },
+      options(home, embedder)
+    );
+
+    const result = await runUserPromptSubmitHook(
+      JSON.stringify({ hook_event_name: "UserPromptSubmit", cwd: home, prompt: "release checklist" }),
+      options(home, embedder)
+    );
+
+    expect(result?.hookSpecificOutput.additionalContext).toContain(text);
+    expect(result?.hookSpecificOutput.additionalContext).toContain(memory.id);
   });
 
   test("prompt retrieval fails open for malformed input and no match", async () => {
