@@ -430,15 +430,19 @@ export async function runUserPromptSubmitHook(
     ) {
       return undefined;
     }
-    const outcome = await searchMemoriesWithOutcome(input.prompt, {
-      ...options,
-      cwd: input.cwd,
-      confidence: "high",
-      durableOnly: true,
-      includePrivate: false,
-      limit: 3,
-      quiet: true
-    });
+    const outcome = await searchMemoriesWithOutcome(
+      input.prompt,
+      {
+        ...options,
+        cwd: input.cwd,
+        confidence: "high",
+        durableOnly: true,
+        includePrivate: false,
+        limit: 3,
+        quiet: true
+      },
+      { vectorOnly: true }
+    );
     if (outcome.embeddingStatus === "disabled") {
       console.error(
         "openbrain: semantic embeddings are disabled; automatic memory injection is unavailable."
@@ -463,7 +467,10 @@ export async function runUserPromptSubmitHook(
     const render = (results: SearchResult[], omitted: number) =>
       [
         "OpenBrain found relevant durable memories. Use only those applicable to this request:",
-        ...results.map((result) => `- [${result.type}] [${result.id}] ${result.excerpt}`)
+        ...results.map(
+          (result) =>
+            `- [${result.type}] [${result.id}]${result.relatedFrom ? ` (related context linked from [${result.relatedFrom}]; it also matches this request)` : ""} ${result.excerpt}`
+        )
       ].join("\n") + omittedResultsNotice(omitted);
     const packed = packSearchResults(relevant, render);
     const additionalContext = render(packed.results, packed.omitted);

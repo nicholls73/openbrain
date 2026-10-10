@@ -12,6 +12,10 @@ interface SearchMemoriesOutcome {
   dimensionMismatches: number;
 }
 
+interface SearchAdmission {
+  vectorOnly?: boolean;
+}
+
 export async function searchMemories(query: string, options: SearchMemoriesOptions = {}) {
   return packSearchResults((await searchMemoriesWithOutcome(query, options)).results).results;
 }
@@ -19,7 +23,8 @@ export async function searchMemories(query: string, options: SearchMemoriesOptio
 // Delivery surfaces pack these full bodies after applying their own admission rules.
 export async function searchMemoriesWithOutcome(
   query: string,
-  options: SearchMemoriesOptions = {}
+  options: SearchMemoriesOptions = {},
+  admission: SearchAdmission = {}
 ): Promise<SearchMemoriesOutcome> {
   const { config, options: scopedOptions } = await prepareOpenBrain(options, { readonly: true });
   const db = await openDatabase(scopedOptions, { readonly: true });
@@ -34,6 +39,23 @@ export async function searchMemoriesWithOutcome(
     // scale ran larger dominate regardless of relevance.
     const RRF_K = 60;
     const fused = new Map<string, { row: IndexedMemoryRow; score: number; matches: Set<"fts" | "vector"> }>();
+    const queryMatches = new Map<
+      string,
+      { row: IndexedMemoryRow; score: number; matches: Set<"fts" | "vector"> }
+    >();
+
+    const remember = (rows: IndexedMemoryRow[], match: "fts" | "vector") => {
+      rows.forEach((row, index) => {
+        const contribution = 1 / (RRF_K + index + 1);
+        const existing = queryMatches.get(row.id);
+        if (existing) {
+          existing.score += contribution;
+          existing.matches.add(match);
+        } else {
+          queryMatches.set(row.id, { row, score: contribution, matches: new Set([match]) });
+        }
+      });
+    };
 
     const fuse = (rows: IndexedMemoryRow[], match: "fts" | "vector") => {
       rows.forEach((row, index) => {
@@ -51,7 +73,9 @@ export async function searchMemoriesWithOutcome(
     const filterRows = (rows: IndexedMemoryRow[]) =>
       rows.filter((row) => rowMatchesSearchOptions(row, options, now));
 
-    fuse(filterRows(ftsSearch(db, toFtsQuery(query), searchLimit)).slice(0, limit), "fts");
+    const ftsRows = filterRows(ftsSearch(db, toFtsQuery(query), searchLimit));
+    remember(ftsRows, "fts");
+    fuse(ftsRows.slice(0, limit), "fts");
 
     const provider = resolveEmbedder(config, options);
     const queryEmbedding = await embedWithTimeout(
@@ -75,7 +99,7 @@ export async function searchMemoriesWithOutcome(
       // can never match (cosine returns 0). That used to be silent, so swapping
       // the embedding model quietly disabled semantic search for every existing
       // memory. Skip those rows explicitly and tell the user to re-embed.
-      const vectorRows = allRowsWithEmbeddings(db)
+      const vectorResults = allRowsWithEmbeddings(db)
         .filter((row) => rowMatchesSearchOptions(row, options, now))
         .map((row) => ({ row, embedding: decodeEmbedding(row.embedding) }))
         .filter((entry): entry is { row: IndexedMemoryRow; embedding: ArrayLike<number> } => {
@@ -90,9 +114,13 @@ export async function searchMemoriesWithOutcome(
         })
         .map(({ row, embedding }) => ({ row, score: cosine(queryEmbedding, embedding) }))
         .filter((result) => result.score >= config.retrieval.minVectorSimilarity)
-        .sort((left, right) => right.score - left.score)
-        .slice(0, limit)
-        .map((result) => result.row);
+        .sort((left, right) => right.score - left.score);
+
+      remember(
+        vectorResults.map((result) => result.row),
+        "vector"
+      );
+      const vectorRows = vectorResults.slice(0, limit).map((result) => result.row);
 
       if (dimensionMismatches > 0 && !options.quiet) {
         console.info(
@@ -105,32 +133,68 @@ export async function searchMemoriesWithOutcome(
       fuse(vectorRows, "vector");
     }
 
-    const results = Array.from(fused.values())
+    const direct = Array.from(fused.values())
       .sort((left, right) => right.score - left.score)
       .slice(0, limit)
-      .map(
-        ({ row, score, matches }): SearchResult => ({
-          id: row.id,
-          type: row.type as StoredMemoryType,
-          title: row.title,
-          path: row.path,
-          source: row.source,
-          scope: row.scope,
-          confidence: row.confidence as SearchResult["confidence"],
-          expiresAt: row.expires_at ?? undefined,
-          relatedTo: parseRelatedTo(row.related_to ?? undefined),
-          promotedFrom: row.promoted_from ?? undefined,
-          sensitivity: row.sensitivity as SearchResult["sensitivity"],
-          promoteAs: (row.promote_as ?? undefined) as SearchResult["promoteAs"],
-          score,
-          excerpt: row.body,
-          match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")
-        })
-      );
+      .filter(({ matches }) => !admission.vectorOnly || matches.has("vector"));
+
+    const relatedLimit = Math.max(0, Math.min(Math.floor(limit / 2), limit - 1));
+    const directIds = new Set(direct.map(({ row }) => row.id));
+    const related = new Map<string, string>();
+    for (const source of relatedLimit ? direct.slice(0, limit - relatedLimit) : []) {
+      for (const id of parseRelatedTo(source.row.related_to ?? undefined) ?? []) {
+        const candidate = queryMatches.get(id);
+        if (
+          !candidate ||
+          directIds.has(id) ||
+          related.has(id) ||
+          (admission.vectorOnly && !candidate.matches.has("vector"))
+        ) {
+          continue;
+        }
+        related.set(id, source.row.id);
+        if (related.size === relatedLimit) {
+          break;
+        }
+      }
+      if (related.size === relatedLimit) {
+        break;
+      }
+    }
+
+    const directCount = Math.min(direct.length, limit - related.size);
+    const results = [
+      ...direct.slice(0, directCount).map((result) => toSearchResult(result)),
+      ...Array.from(related, ([id, relatedFrom]) => toSearchResult(queryMatches.get(id)!, relatedFrom))
+    ];
     return { results, embeddingStatus, dimensionMismatches };
   } finally {
     db.close();
   }
+}
+
+function toSearchResult(
+  { row, score, matches }: { row: IndexedMemoryRow; score: number; matches: Set<"fts" | "vector"> },
+  relatedFrom?: string
+): SearchResult {
+  return {
+    id: row.id,
+    type: row.type as StoredMemoryType,
+    title: row.title,
+    path: row.path,
+    source: row.source,
+    scope: row.scope,
+    confidence: row.confidence as SearchResult["confidence"],
+    expiresAt: row.expires_at ?? undefined,
+    relatedTo: parseRelatedTo(row.related_to ?? undefined),
+    ...(relatedFrom ? { relatedFrom } : {}),
+    promotedFrom: row.promoted_from ?? undefined,
+    sensitivity: row.sensitivity as SearchResult["sensitivity"],
+    promoteAs: (row.promote_as ?? undefined) as SearchResult["promoteAs"],
+    score,
+    excerpt: row.body,
+    match: matches.size > 1 ? "hybrid" : ([...matches][0] as "fts" | "vector")
+  };
 }
 
 function toFtsQuery(query: string) {

@@ -765,7 +765,7 @@ function renderSearchResults(results: SearchResult[], omitted: number) {
   for (const result of results) {
     lines.push(`[${result.id}] ${result.title}`);
     lines.push(
-      `type=${result.type} scope=${result.scope} confidence=${result.confidence} sensitivity=${result.sensitivity} match=${result.match} score=${result.score.toFixed(3)}`
+      `type=${result.type} scope=${result.scope} confidence=${result.confidence} sensitivity=${result.sensitivity} match=${result.match} score=${result.score.toFixed(3)}${result.relatedFrom ? ` relatedFrom=${result.relatedFrom}` : ""}`
     );
     if (result.expiresAt || result.promotedFrom || result.promoteAs) {
       lines.push(

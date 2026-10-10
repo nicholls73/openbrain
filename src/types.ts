@@ -166,6 +166,7 @@ export interface SearchResult {
   confidence: MemoryConfidence;
   expiresAt?: string;
   relatedTo?: string[];
+  relatedFrom?: string;
   promotedFrom?: string;
   sensitivity: MemorySensitivity;
   promoteAs?: DurableMemoryType;
