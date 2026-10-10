@@ -175,4 +175,43 @@ describe("UserPromptSubmit diagnostics", () => {
     expect(diagnostic.mock.calls[0]?.[0]).not.toContain(home);
     expect(diagnostic.mock.calls[0]?.[0]).not.toContain("private database sentinel");
   });
+
+  test("budgets whole memories after excluding lexical-only matches", async () => {
+    const { home, options } = await fixture({
+      async embed(text) {
+        return text.includes("lexical-only") ? [0, 1] : [1, 0];
+      }
+    });
+    const lexical = await addMemory(
+      {
+        type: "workflow",
+        text: "contextbudget lexical-only. " + "x".repeat(8000),
+        metadata: { confidence: "high" }
+      },
+      options
+    );
+    const large = await addMemory(
+      {
+        type: "decision",
+        text: "contextbudget large. " + "🧠".repeat(3000),
+        metadata: { confidence: "high" }
+      },
+      options
+    );
+    const body = "contextbudget useful. " + "Keep this complete. ".repeat(330) + "Only with approval.";
+    const short = await addMemory(
+      { type: "preference", text: body, metadata: { confidence: "high" } },
+      options
+    );
+
+    const result = await runUserPromptSubmitHook(input(home, "contextbudget"), options);
+    const context = result?.hookSpecificOutput.additionalContext ?? "";
+    expect(context).toContain(body);
+    expect(context).toContain(short.id);
+    expect(context).toContain(`openbrain memory show ${large.id}`);
+    expect(context).toContain("Incomplete");
+    expect(context).not.toContain(lexical.id);
+    expect(context).not.toContain("lexical-only");
+    expect(Buffer.byteLength(context)).toBeLessThanOrEqual(8192);
+  });
 });
