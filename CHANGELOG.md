@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.14.0](https://github.com/nicholls73/openbrain/compare/v0.13.0...v0.14.0) (2026-10-10)
+
+
+### Features
+
+* deliver complete memories within a shared context budget ([#187](https://github.com/nicholls73/openbrain/issues/187)) ([89eb4a4](https://github.com/nicholls73/openbrain/commit/89eb4a4f8302c3b78cedd97a50deda89c3981f20))
+* guide agents to link related memories ([#178](https://github.com/nicholls73/openbrain/issues/178)) ([e4efb8d](https://github.com/nicholls73/openbrain/commit/e4efb8dadedd268638bc1d4f5ae5ed90adb8310f))
+* retrieve relevant context through memory links ([#188](https://github.com/nicholls73/openbrain/issues/188)) ([114c470](https://github.com/nicholls73/openbrain/commit/114c47023ba166243a3d15c28107054976a8d7d2))
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @biomejs/biome from 2.5.14 to 2.5.15 ([#180](https://github.com/nicholls73/openbrain/issues/180)) ([306ec2b](https://github.com/nicholls73/openbrain/commit/306ec2b18e0b80a9758259816843d3ed7cafecc6))
+* **deps-dev:** bump @types/node from 26.6.3 to 26.6.4 ([#181](https://github.com/nicholls73/openbrain/issues/181)) ([f4aa08f](https://github.com/nicholls73/openbrain/commit/f4aa08f6416cecd61380b751f550a98d120a4029))
+* **deps-dev:** bump vitest from 5.0.2 to 5.0.3 ([#183](https://github.com/nicholls73/openbrain/issues/183)) ([a7b9917](https://github.com/nicholls73/openbrain/commit/a7b99175e39b3a8d88ac324f87ba8300582311f9))
+* **deps:** bump @modelcontextprotocol/sdk from 1.30.1 to 1.32.0 ([#182](https://github.com/nicholls73/openbrain/issues/182)) ([057b94d](https://github.com/nicholls73/openbrain/commit/057b94dd6e55474200410d2e04f775ea773fe717))
+
 ## [0.13.0](https://github.com/nicholls73/openbrain/compare/v0.12.1...v0.13.0) (2026-10-03)
 
 
