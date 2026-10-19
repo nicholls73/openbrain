@@ -90,10 +90,10 @@ run_pnpm() {
   local package_manager
   package_manager="$(node -p 'require("./package.json").packageManager || ""')"
 
-  if [[ "$package_manager" == pnpm@* ]] && command -v npm >/dev/null 2>&1; then
+  if [[ "$package_manager" == pnpm@* ]] && command -v npm >/dev/null 2>&1 && npm exec --version >/dev/null 2>&1; then
     npm exec --yes --package="$package_manager" -- pnpm "$@"
   else
-    command -v pnpm >/dev/null 2>&1 || fail "package.json must pin pnpm when npm is unavailable."
+    command -v pnpm >/dev/null 2>&1 || fail "pnpm is required when npm exec is unavailable or package.json does not pin pnpm."
     pnpm "$@"
   fi
 }
