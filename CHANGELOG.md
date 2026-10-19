@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.1](https://github.com/nicholls73/openbrain/compare/v0.14.0...v0.14.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @types/node from 26.6.4 to 26.6.5 ([#192](https://github.com/nicholls73/openbrain/issues/192)) ([70ef276](https://github.com/nicholls73/openbrain/commit/70ef2765042aa1aa535442ae00d019bf07a24d56))
+* **deps:** bump @huggingface/transformers from 4.3.0 to 4.3.1 ([#189](https://github.com/nicholls73/openbrain/issues/189)) ([398fd9c](https://github.com/nicholls73/openbrain/commit/398fd9c828a45984190ee6eaa32024434a3dafa8))
+* **deps:** bump @modelcontextprotocol/sdk from 1.32.0 to 1.32.1 ([#190](https://github.com/nicholls73/openbrain/issues/190)) ([9d93ede](https://github.com/nicholls73/openbrain/commit/9d93eded2321ce11ec42108f852014eb77189075))
+* **deps:** bump zod from 4.6.5 to 4.6.7 ([#191](https://github.com/nicholls73/openbrain/issues/191)) ([630f869](https://github.com/nicholls73/openbrain/commit/630f869c2e9d26b7a761c3db51fa56eec899eef4))
+* use release-pinned pnpm in installer ([#193](https://github.com/nicholls73/openbrain/issues/193)) ([bcca28e](https://github.com/nicholls73/openbrain/commit/bcca28e9bc33d7b35e96300879261dc72b0c140e))
+
 ## [0.14.0](https://github.com/nicholls73/openbrain/compare/v0.13.0...v0.14.0) (2026-10-13)
 
 
