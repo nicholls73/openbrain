@@ -35,6 +35,8 @@ Environment:
   OPENBRAIN_SOURCE_DIR   Local source directory for development/testing installs.
   OPENBRAIN_SKIP_BIN     Set to 1 to preserve an existing executable wrapper.
 
+Dependency installation uses npm to run the pnpm version pinned by the release.
+
 After install:
   openbrain setup
 EOF
@@ -71,8 +73,8 @@ ensure_node() {
   fi
 }
 
-ensure_pnpm() {
-  if command -v pnpm >/dev/null 2>&1; then
+ensure_package_manager() {
+  if command -v npm >/dev/null 2>&1 || command -v pnpm >/dev/null 2>&1; then
     return
   fi
 
@@ -81,7 +83,19 @@ ensure_pnpm() {
     corepack enable pnpm >/dev/null 2>&1 || true
   fi
 
-  command -v pnpm >/dev/null 2>&1 || fail "pnpm is required. Install it or enable it with corepack."
+  command -v pnpm >/dev/null 2>&1 || fail "npm or pnpm is required. Install one or enable pnpm with corepack."
+}
+
+run_pnpm() {
+  local package_manager
+  package_manager="$(node -p 'require("./package.json").packageManager || ""')"
+
+  if [[ "$package_manager" == pnpm@* ]] && command -v npm >/dev/null 2>&1 && npm exec --version >/dev/null 2>&1; then
+    npm exec --yes --package="$package_manager" -- pnpm "$@"
+  else
+    command -v pnpm >/dev/null 2>&1 || fail "pnpm is required when npm exec is unavailable or package.json does not pin pnpm."
+    pnpm "$@"
+  fi
 }
 
 cleanup() {
@@ -313,7 +327,7 @@ install_openbrain() {
   esac
 
   ensure_node
-  ensure_pnpm
+  ensure_package_manager
   acquire_install_lock
   recover_interrupted_install
   STAGING_DIR="$(mktemp -d "${OPENBRAIN_INSTALL_DIR}.staging.XXXXXX")"
@@ -326,10 +340,10 @@ install_openbrain() {
   fi
 
   log "installing dependencies"
-  (cd "$STAGING_DIR" && pnpm install --frozen-lockfile)
+  (cd "$STAGING_DIR" && run_pnpm install --frozen-lockfile)
 
   log "building CLI"
-  (cd "$STAGING_DIR" && pnpm build)
+  (cd "$STAGING_DIR" && run_pnpm build)
 
   log "validating staged CLI"
   validate_staged_cli
