@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.2](https://github.com/nicholls73/openbrain/compare/v0.14.1...v0.14.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @biomejs/biome from 2.5.15 to 2.6.2 ([#196](https://github.com/nicholls73/openbrain/issues/196)) ([273e276](https://github.com/nicholls73/openbrain/commit/273e2764eb2524cabb2606f78c8d6085aec47d54))
+* **deps-dev:** bump vitest from 5.0.3 to 5.0.5 ([#195](https://github.com/nicholls73/openbrain/issues/195)) ([9eda73c](https://github.com/nicholls73/openbrain/commit/9eda73cf31fae9cd714cfd10f39b4e5ca07b8a39))
+* **deps:** bump @modelcontextprotocol/sdk from 1.32.1 to 1.32.2 ([#197](https://github.com/nicholls73/openbrain/issues/197)) ([397472e](https://github.com/nicholls73/openbrain/commit/397472e2a675d0c469a9ac4752907f9602628576))
+
 ## [0.14.1](https://github.com/nicholls73/openbrain/compare/v0.14.0...v0.14.1) (2026-10-19)
 
 
