@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.2](https://github.com/nicholls73/openbrain/compare/v0.14.1...v0.14.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump @biomejs/biome from 2.5.15 to 2.6.2 ([#196](https://github.com/nicholls73/openbrain/issues/196)) ([273e276](https://github.com/nicholls73/openbrain/commit/273e2764eb2524cabb2606f78c8d6085aec47d54))
+* **deps-dev:** bump @biomejs/biome from 2.6.2 to 2.6.5 ([#200](https://github.com/nicholls73/openbrain/issues/200)) ([4e101a7](https://github.com/nicholls73/openbrain/commit/4e101a7a92f18da9e17ddfc702d23b2e8c7a2960))
+* **deps-dev:** bump @biomejs/biome from 2.6.5 to 2.6.6 ([#204](https://github.com/nicholls73/openbrain/issues/204)) ([d4af97f](https://github.com/nicholls73/openbrain/commit/d4af97f3d1dc54ad87950d0c126d3a728ac19502))
+* **deps-dev:** bump @types/node from 26.6.5 to 26.6.6 ([#202](https://github.com/nicholls73/openbrain/issues/202)) ([e1f2dae](https://github.com/nicholls73/openbrain/commit/e1f2daeaeb5de8d7e4effda8d56c530120b545b0))
+* **deps-dev:** bump vitest from 5.0.3 to 5.0.5 ([#195](https://github.com/nicholls73/openbrain/issues/195)) ([9eda73c](https://github.com/nicholls73/openbrain/commit/9eda73cf31fae9cd714cfd10f39b4e5ca07b8a39))
+* **deps-dev:** bump vitest from 5.0.5 to 5.1.0 ([#203](https://github.com/nicholls73/openbrain/issues/203)) ([7fc5d95](https://github.com/nicholls73/openbrain/commit/7fc5d95fac83b8af4b8a552eabf96230615d9189))
+* **deps:** bump @huggingface/transformers from 4.3.1 to 4.3.2 ([#201](https://github.com/nicholls73/openbrain/issues/201)) ([55c2f09](https://github.com/nicholls73/openbrain/commit/55c2f09acc9438b08303cc63a45b6e01f505bc96))
+* **deps:** bump @modelcontextprotocol/sdk from 1.32.1 to 1.32.2 ([#197](https://github.com/nicholls73/openbrain/issues/197)) ([397472e](https://github.com/nicholls73/openbrain/commit/397472e2a675d0c469a9ac4752907f9602628576))
+
 ## [0.14.1](https://github.com/nicholls73/openbrain/compare/v0.14.0...v0.14.1) (2026-10-19)
 
 
